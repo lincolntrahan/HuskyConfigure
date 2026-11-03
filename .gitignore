@@ -4,3 +4,4 @@ dist/
 .vite/
 tools/gen-mavlink/xml/
 spikes/out/
+backups/

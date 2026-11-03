@@ -71,9 +71,29 @@ everything except MANUAL/ACRO/FBWA → `FLTMODE_GCSBLOCK = 4194254`.
 | Fix: script-owned rudder arming (`ARMING_RUDDER=0`) | 2 s hold arms; 1 s hold no; throttle up no; **script stopped: no** |
 | Script param table | **must be append-only.** Inserting a slot moved saved failsafe PWMs into the wrong params. |
 
+### Hardware: Matek H743 Wing on USB (no peripherals), 2026-11-03
+Board config was backed up first (`backups/`, gitignored: `.param`, `.json`, SD listing, ROMFS
+`hwdef.dat`/`defaults.parm`) and **matched the backup exactly afterwards** (1,267/1,267; only
+the `STAT_RUNTIME` counter moved).
+
+| Check | Result |
+|---|---|
+| Identify | ArduPlane 4.7.2 `fb773567`, target **MatekH743-bdshot**, APJ board id 1013, uid2 `4f00390007513235…` |
+| Param download (PARAM_REQUEST_LIST over USB) | 1,267 params in **7.4 s**, 0 CRC errors (5× slower than SITL over TCP) |
+| Param download via MAVFTP `@PARAM/param.pck` | **1.2 s**, 13.4 kB; decoder agrees with the slow download on every value. **Use this as the primary download path**, with the slow one as fallback. |
+| Verified write | ~20 ms per write; out-of-range clamped (99999 → 32767) and fractional int truncated (1499.5 → 1499), both reported as failures; originals restored |
+| MAVFTP list / read | works; `@ROMFS` lists `hwdef.dat`, `defaults.parm`, bootloader, fonts |
+| SD card | **every SD path fails with errno 28 (ENOSPC)**; boot also logs `Failed to create log directory /APM/LOGS : ENOSPC`. So no logging, no script upload. |
+| husky.lua on hardware | **blocked by the SD card**, not run |
+
+Findings for the design:
+- **Read `hwdef.dat` from the board's ROMFS.** It's the exact hardware definition of the firmware that's running. The bdshot build uses a *different timer layout* for its bidirectional outputs (e.g. S1 on TIM3 instead of TIM8), so output-group rules must come from the running target, not a generic board entry.
+- **SD-card health is a gate item.** This board would have "flown" without logging and without its failsafe script. The arming gate can only catch that while its script runs, so the field check must also verify the card (an FTP write/read/delete round-trip works for this once the card is good).
+
 ## Still open in Phase 0
-- **Hardware (needs a board on USB):** Web Serial connect and download speed on the Matek H743 and F405 Wing; DShot throttle under the script override; ELRS CRSF vs MAVLink-mode RC-valid behavior; accel cal handshake; reboot and ELRS reconnect.
-- **MAVLink FTP upload** of `husky.lua` (SITL used a file copy).
+- **Hardware (needs a board on USB):** fix or replace the H743's SD card, then run husky.lua on it (heap, loop timing); DShot throttle under the script override (needs an ESC); ELRS CRSF vs MAVLink-mode RC-valid behavior (needs a receiver); accel cal handshake; reboot and ELRS reconnect; F405 Wing.
+- **MAVLink FTP upload of `husky.lua`:** the FTP write code exists but couldn't be exercised (SD card).
+- **Web Serial in the browser:** these hardware tests used Node's serial port; the protocol layers are shared.
 - **Bootloader flashing** and Electron's serial port control.
 - **Scripted-surface mixer** in Lua (spoilerons), and what an orphaned scripting output does if the script stops.
 - **Metadata and hwdef generators** from release tags (the raw `apm.pdef.json` from master was used ad hoc).
