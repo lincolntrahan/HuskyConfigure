@@ -36,6 +36,10 @@ export function checkDeps(check: string, p: Profile): string[] {
     return [...STICKS(p), ...servo(s.output), ...rcs, ...SCRIPT_MIX, "MIXING_GAIN", "MIXING_OFFSET"];
   }
   if (check === "stabilize") return [...STICKS(p), ...allServos, "AHRS_ORIENTATION", ...SCRIPT_MIX];
+  // the tilt check proves the mounting; a re-level is only valid for the orientation it was done in
+  if (check === "orientation") return ["AHRS_ORIENTATION"];
+  if (check === "level") return ["AHRS_ORIENTATION", "AHRS_TRIM_X", "AHRS_TRIM_Y"];
+  if (check === "accelcal") return ["INS_ACCOFFS_X", "INS_ACCOFFS_Y", "INS_ACCOFFS_Z", "INS_ACCSCAL_X", "INS_ACCSCAL_Y", "INS_ACCSCAL_Z"];
   if (check === "failsafe") {
     return [...allServos, "RC_FS_TIMEOUT", "HSK_ENABLE", "HSK_FS_DLY",
       ...Array.from({ length: 16 }, (_, i) => `HSK_FS_PWM${i + 1}`), ...p.motors.filter((m) => m.output).map((m) => `SERVO${m.output}_FUNCTION`)];

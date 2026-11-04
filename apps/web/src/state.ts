@@ -6,7 +6,8 @@ let metaCache: MetadataMatch | undefined;
 
 export const session = new Session(
   typeof indexedDB !== "undefined" ? indexedDbBackupStore() : memoryBackupStore(),
-  { rebootRequired: (name) => metaCache?.set.params[name]?.rb === 1 },
+  // AHRS_ORIENTATION only takes effect at boot, but its metadata doesn't say so
+  { rebootRequired: (name) => name === "AHRS_ORIENTATION" || metaCache?.set.params[name]?.rb === 1 },
 );
 
 // Handy in the browser console while developing.

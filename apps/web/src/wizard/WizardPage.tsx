@@ -5,6 +5,7 @@ import { useLive } from "./common.tsx";
 import { check, useDerived, useProfile, type Derived } from "./store.ts";
 import { StartStep, SticksStep, ModesStep } from "./stepsSetup.tsx";
 import { PeripheralsStep } from "./stepsPeripherals.tsx";
+import { SensorsStep } from "./stepsSensors.tsx";
 import { ScriptStep, BUNDLED_VERSION } from "./stepsAirframe.tsx";
 import { AirframeOutputsStep } from "./airframe.tsx";
 import { DirectionsStep, StabilizeStep } from "./stepsChecks.tsx";
@@ -15,6 +16,7 @@ interface StepDef { id: string; label: string; owns: StepId[]; Comp: (props: { p
 
 const STEPS: StepDef[] = [
   { id: "receiver", label: "Peripherals", owns: ["receiver"], Comp: PeripheralsStep },
+  { id: "sensors", label: "Orientation and accel", owns: ["orientation"], Comp: SensorsStep },
   { id: "sticks", label: "Sticks", owns: ["sticks"], Comp: SticksStep },
   { id: "modes", label: "Flight modes", owns: ["modes"], Comp: ModesStep },
   { id: "airframe", label: "Airframe and outputs", owns: ["outputs", "motor", "directions", "trims"], Comp: AirframeOutputsStep },
@@ -39,6 +41,11 @@ function statusOf(step: StepDef, p: Profile, d: Derived, hsk: { version: number;
       const sts = p.surfaces.filter((s) => s.output && s.kind !== "fixed" && mixInputs(s).some((i) => i !== "throttle")).map((s) => check(`direction:${s.id}`, p));
       if (!sts.length) return "todo";
       return sts.every((x) => x === "ok") && !diff ? "done" : sts.some((x) => x === "stale") ? "stale" : "todo";
+    }
+    case "sensors": {
+      const cs = ["orientation", "accelcal", "level"].map((c) => check(c, p));
+      if (diff) return "todo";
+      return cs.every((x) => x === "ok") ? "done" : cs.some((x) => x === "stale") ? "stale" : "todo";
     }
     case "stabilize": { const c = check("stabilize", p); return c === "ok" ? "done" : c; }
     case "failsafe": { const c = check("failsafe", p); return c === "ok" && !diff ? "done" : c === "stale" ? "stale" : "todo"; }

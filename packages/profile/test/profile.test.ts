@@ -91,6 +91,20 @@ describe("import from board", () => {
     expect(outDiff).toEqual([]);
   });
 
+  it("imports and writes the board orientation, and a re-mount makes the checks stale", () => {
+    const board = lastYearBoard();
+    board.set("AHRS_ORIENTATION", 2);
+    const prof = inferProfile(board);
+    expect(prof.orientation).toBe(2);
+    expect(diffCompiled(compile(prof, facts(board)), board, ["orientation"])).toEqual([]);
+    const moved = { ...prof, orientation: 10 };
+    expect(compile(moved, facts(board)).params.AHRS_ORIENTATION).toBe(10);
+    const checked = recordCheck("level", prof, board);
+    expect(checkStatus("level", checked, board)).toBe("ok");
+    expect(checkStatus("level", checked, new Map([...board, ["AHRS_ORIENTATION", 10]]))).toBe("stale");
+    expect(compile(emptyProfile("x"), facts(board)).params.AHRS_ORIENTATION).toBeUndefined();
+  });
+
   it("flags last year's problems", () => {
     const board = lastYearBoard();
     const prof = inferProfile(board);

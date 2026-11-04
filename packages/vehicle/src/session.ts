@@ -41,6 +41,7 @@ export interface SessionState {
   busy?: { label: string; done: number; total: number };
   log: LogLine[];
   rebootNeeded: string[];
+  accelCal?: AccelCalState;
 }
 
 export interface LiveState {
@@ -58,6 +59,13 @@ export interface LiveState {
   /** last time ESC telemetry arrived */
   escT?: number;
 }
+
+/**
+ * Six-position accelerometer calibration as the board drives it. `pos` is ArduPilot's
+ * ACCELCAL_VEHICLE_POS (1 level, 2 left side down, 3 right side down, 4 nose down, 5 nose up,
+ * 6 upside down). "waiting" = the board asked for `pos`; "sampling" = we said it's in place.
+ */
+export interface AccelCalState { state: "starting" | "waiting" | "sampling" | "done" | "failed"; pos: number; message?: string }
 
 export interface Hwdef { text: string; pwm: { n: number; timer: string; bidir: boolean }[]; serialOrder: string[] }
 
@@ -346,6 +354,82 @@ export class Session {
     }
     this.rebooting = false;
     this.set({ phase: "error", error: `The board didn't come back after the reboot. ${(lastErr as Error)?.message ?? ""}`, busy: undefined });
+  }
+
+  // ---- calibration ----
+  private calOff?: () => void;
+
+  /**
+   * Start the 6-position accelerometer calibration (MAV_CMD_PREFLIGHT_CALIBRATION, param5 = 1).
+   * The board then asks for each position with MAV_CMD_ACCELCAL_VEHICLE_POS; answer with
+   * accelCalInPlace() once the plane is held still in it.
+   */
+  async startAccelCal(): Promise<void> {
+    const conn = this.conn;
+    if (!conn || !this.canWrite) throw new Error("Can't calibrate now: the board must be connected, disarmed and backed up.");
+    this.calOff?.();
+    this.set({ accelCal: { state: "starting", pos: 0 } });
+    const offCmd = conn.on("COMMAND_LONG", (m) => {
+      if (m.fields.command !== 42429) return;
+      const pos = Math.round(m.fields.param1);
+      if (pos === 16777215) void this.endAccelCal("done");
+      else if (pos === 16777216) void this.endAccelCal("failed", "The board rejected the readings. Hold each position still and square, then try again.");
+      else this.set({ accelCal: { state: "waiting", pos } });
+    });
+    // older firmware only reports the result in text
+    const offTxt = conn.on("STATUSTEXT", (m) => {
+      if (this.state.accelCal?.state === "done" || this.state.accelCal?.state === "failed") return;
+      if (/calibration successful/i.test(m.fields.text)) void this.endAccelCal("done");
+      else if (/calibration (failed|cancelled)/i.test(m.fields.text)) void this.endAccelCal("failed", `Board says "${m.fields.text}". Usually a position wasn't held still or square enough.`);
+    });
+    this.calOff = () => { offCmd(); offTxt(); this.calOff = undefined; };
+    let r: number;
+    try { r = await conn.command(241, [0, 0, 0, 0, 1, 0, 0], { timeoutMs: 3000, retries: 2 }); }
+    catch { r = -1; }
+    if (r !== 0) await this.endAccelCal("failed", r === -1 ? "The board didn't answer the calibration command." : `The board refused to start calibrating (result ${r}).`);
+  }
+
+  /** Tell the board the plane is held in the position it asked for. */
+  async accelCalInPlace(): Promise<void> {
+    const c = this.state.accelCal;
+    if (!c || c.state !== "waiting" || !this.conn) return;
+    this.set({ accelCal: { ...c, state: "sampling" } });
+    // one try only: a repeat could be taken as the next position
+    await this.conn.command(42429, [c.pos], { timeoutMs: 2000, retries: 1 }).catch(() => {});
+  }
+
+  private async endAccelCal(state: "done" | "failed", message?: string) {
+    this.calOff?.();
+    this.set({ accelCal: { state, pos: this.state.accelCal?.pos ?? 0, message } });
+    if (state === "done") await this.refreshParams(/^INS_ACC/);
+  }
+
+  /** Stop following a calibration. A calibration the board is still running ends with a reboot. */
+  async cancelAccelCal(reboot: boolean): Promise<void> {
+    this.calOff?.();
+    this.set({ accelCal: undefined });
+    if (reboot) await this.rebootAndReconnect("Cancelling calibration");
+  }
+
+  /**
+   * Level: the board takes its current attitude as level (MAV_CMD_PREFLIGHT_CALIBRATION,
+   * param5 = 2) and stores it in AHRS_TRIM_X/Y. Returns the MAV_RESULT (0 = done).
+   */
+  async calibrateLevel(): Promise<number> {
+    if (!this.conn || !this.canWrite) throw new Error("Can't calibrate now: the board must be connected, disarmed and backed up.");
+    this.set({ busy: { label: "Levelling", done: 0, total: 1 } });
+    try {
+      const r = await this.conn.command(241, [0, 0, 0, 0, 2, 0, 0], { timeoutMs: 8000, retries: 1 });
+      if (r === 0) await this.refreshParams(/^AHRS_TRIM_/);
+      return r;
+    } finally { this.set({ busy: undefined }); }
+  }
+
+  /** Re-read parameters the board changed by itself (e.g. after a calibration). */
+  private async refreshParams(re: RegExp) {
+    const names = [...this.params.keys()].filter((n) => re.test(n));
+    for (const n of names) await this.pm?.read(n).catch(() => undefined);
+    this.set({ paramsRev: this.state.paramsRev + 1 });
   }
 
   /** Upload a script to the board's scripts folder over MAVLink FTP and verify by reading it back. */

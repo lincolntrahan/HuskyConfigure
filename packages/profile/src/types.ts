@@ -91,6 +91,8 @@ export interface Profile {
   notes?: string;
   /** which physical board this profile was set up on (calibrations belong to it) */
   board?: { target?: string; uid?: string; firmware?: string };
+  /** AHRS_ORIENTATION: how the flight controller is mounted in this airframe (undefined = leave the board's) */
+  orientation?: number;
   /** outline drawn behind the surfaces on the airframe diagram */
   silhouette?: Silhouette;
 

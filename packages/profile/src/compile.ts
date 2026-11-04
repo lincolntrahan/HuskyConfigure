@@ -10,7 +10,7 @@ import { PERIPHERALS, profilePorts } from "./peripherals.ts";
 
 export type StepId =
   | "receiver" | "sticks" | "modes" | "outputs" | "motor" | "directions" | "trims"
-  | "failsafe" | "arming" | "pinned";
+  | "failsafe" | "arming" | "orientation" | "pinned";
 
 export interface BoardFacts {
   /** current value of every parameter on the board (names absent = not on this firmware/config) */
@@ -177,6 +177,9 @@ export function compile(profile: Profile, board: BoardFacts, allowedModes: numbe
   } else if (board.params.has("HSK_MIX_N")) {
     set("outputs", "HSK_MIX_N", 0);
   }
+
+  // ---- board orientation ----
+  if (profile.orientation !== undefined) set("orientation", "AHRS_ORIENTATION", profile.orientation);
 
   // ---- arming ----
   set("arming", "ARMING_REQUIRE", 1);

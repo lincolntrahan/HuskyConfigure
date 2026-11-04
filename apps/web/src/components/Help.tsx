@@ -27,6 +27,7 @@ export const DOCS = {
   prearm: ["Pre-arm checks", "common-prearm-safety-checks.html"],
   lua: ["Lua scripts", "common-lua-scripts.html"],
   mounting: ["Board orientation", "common-mounting-the-flight-controller.html"],
+  accelCal: ["Accelerometer calibration", "common-accelerometer-calibration.html"],
   params: ["Full parameter list", "parameters.html"],
 } as const;
 export type DocKey = keyof typeof DOCS;

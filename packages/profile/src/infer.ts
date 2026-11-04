@@ -44,6 +44,7 @@ export function inferProfile(params: ReadonlyMap<string, number>, opts: { name?:
     if (opt === 208 && !p.flapChannel) p.flapChannel = ch;
     if (opt === 153) p.arming = { method: "switch", switchChannel: ch, rudderDisarm: false };
   }
+  if (g("AHRS_ORIENTATION") !== undefined) p.orientation = g("AHRS_ORIENTATION");
   p.ports = portsFromBoard(params);
   // keep each port's baud as it is on the board (an import shouldn't change anything)
   p.portBaud = Object.fromEntries(Object.keys(p.ports).map((n) => [n, g(`SERIAL${n}_BAUD`)]).filter(([, v]) => v !== undefined));

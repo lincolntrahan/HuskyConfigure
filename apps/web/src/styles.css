@@ -464,3 +464,23 @@ input.slider::-webkit-slider-thumb { background: #000; border-color: var(--text)
 .in-del { justify-self: end; }
 .in-row select { width: 100%; }
 @media (max-width: 1100px) { .in-row { grid-template-columns: minmax(12em, 1fr) 8em 8em 1fr 3.5em 2em; } .in-row .in-used, .in-row.head > :nth-child(6) { display: none; } }
+
+/* ---------- orientation and accelerometers ---------- */
+.sens-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.sens-grid .card { margin: 0; }
+.mount { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.mount-pic { width: 160px; height: 212px; flex: none; }
+.mount-pic .af-sil { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.mount-board { fill: #000; stroke: var(--warn); stroke-width: 2; }
+.mount-board.flipped { stroke-dasharray: 5 4; }
+.mount-arrow { fill: var(--warn); }
+.mount-pick { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.mount-pick .seg { flex-wrap: wrap; }
+.tilt-read { display: flex; gap: 24px; font-size: 20px; }
+.tilt-read b { font-weight: 400; color: var(--text); }
+.cal-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; }
+.cal-dot { border: 1px solid var(--muted); padding: 4px 6px; color: var(--muted); font-size: 12px; }
+.cal-dot.done { border-color: var(--text); color: var(--text); }
+.cal-dot.now { border: 2px solid var(--warn); color: var(--warn); }
+.mount-pick .seg.arrows { display: grid; grid-template-columns: repeat(2, 1fr); max-width: 260px; }
+.mount-pick .seg:not(.arrows) { max-width: 260px; display: grid; grid-template-columns: 1fr 1fr; }
