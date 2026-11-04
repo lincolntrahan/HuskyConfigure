@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
@@ -12,7 +15,30 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "jsx": "react-jsx",
+    "paths": {
+      "@husky/mavlink": [
+        "./packages/mavlink/src/index.ts"
+      ],
+      "@husky/vehicle": [
+        "./packages/vehicle/src/index.ts"
+      ],
+      "@husky/profile": [
+        "./packages/profile/src/index.ts"
+      ],
+      "@husky/metadata": [
+        "./packages/metadata/src/index.ts"
+      ]
+    }
   },
-  "include": ["packages/*/src", "packages/*/test", "tools", "spikes"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "tools",
+    "spikes",
+    "apps/*/src"
+  ]
 }

@@ -88,6 +88,18 @@ export class ParamManager {
     return this.params;
   }
 
+  /** Load a full parameter set obtained another way (e.g. MAVFTP @PARAM/param.pck). */
+  loadAll(list: { name: string; value: number; type: number }[]): void {
+    this.params.clear();
+    this.byIndex.clear();
+    list.forEach((p, i) => {
+      const param: Param = { ...p, index: i };
+      this.params.set(p.name, param);
+      this.byIndex.set(i, param);
+    });
+    this.total = list.length;
+  }
+
   missing(): number[] {
     const out: number[] = [];
     for (let i = 0; i < this.total; i++) if (!this.byIndex.has(i)) out.push(i);
