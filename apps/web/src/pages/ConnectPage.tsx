@@ -14,14 +14,15 @@ export function ConnectPage() {
     setErr(undefined);
     try {
       const port = await requestSerialPort();
-      await session.connect(await webSerialTransport(port));
+      // a function, not a link: lets the session reopen the same port after a reboot
+      await session.connect(() => webSerialTransport(port));
     } catch (e) {
       if ((e as Error).name !== "NotFoundError") setErr((e as Error).message); // NotFoundError = picker cancelled
     }
   }
   async function bridge() {
     setErr(undefined);
-    try { await session.connect(await wsTransport(url)); } catch (e) { setErr((e as Error).message); }
+    try { await session.connect(() => wsTransport(url)); } catch (e) { setErr((e as Error).message); }
   }
 
   return (

@@ -43,6 +43,20 @@ export interface SessionState {
   rebootNeeded: string[];
 }
 
+export interface LiveState {
+  /** RC_CHANNELS raw PWM, index 0 = channel 1 */
+  rc: number[];
+  rcCount: number;
+  rssi?: number;
+  /** SERVO_OUTPUT_RAW, index 0 = S1 */
+  servo: number[];
+  attitude?: { roll: number; pitch: number; yaw: number };
+  /** husky.lua heartbeat */
+  hsk?: { version: number; state: number; t: number };
+}
+
+export interface Hwdef { text: string; pwm: { n: number; timer: string; bidir: boolean }[]; serialOrder: string[] }
+
 export interface WriteChange { name: string; value: number }
 export interface WriteReport { results: SetResult[]; ok: boolean; aborted?: string }
 
@@ -55,6 +69,7 @@ export class Session {
   pm?: ParamManager;
   ftp?: MavFtp;
   private hbWatch?: ReturnType<typeof setInterval>;
+  private opener?: () => Promise<Transport>;
   private lastHb = 0;
 
   constructor(private readonly backups: BackupStore, private readonly opts: { rebootRequired?: (name: string) => boolean } = {}) {}
@@ -76,10 +91,23 @@ export class Session {
   }
 
   // ---- connect ----
-  async connect(transport: Transport): Promise<void> {
+  /** Connect with a function that opens the link, so the session can reopen it after a reboot. */
+  async connect(open: Transport | (() => Promise<Transport>)): Promise<void> {
     await this.disconnect();
+    this.opener = typeof open === "function" ? open : undefined;
+    let transport: Transport;
+    try {
+      transport = typeof open === "function" ? await open() : open;
+    } catch (e) {
+      this.set({ phase: "error", error: (e as Error).message });
+      return;
+    }
     this.set({ phase: "connecting", error: undefined, link: transport.description, info: undefined, backup: undefined,
       busy: undefined, rebootNeeded: [], log: [] });
+    await this.attach(transport, { backup: true });
+  }
+
+  private async attach(transport: Transport, opt: { backup: boolean }): Promise<void> {
     try {
       const conn = new MavConnection(transport);
       this.conn = conn;
@@ -107,9 +135,13 @@ export class Session {
       this.ftp = new MavFtp(conn);
       await this.downloadParams();
 
-      this.set({ phase: "backing-up" });
-      await this.saveBackup("automatic, on connect");
+      if (opt.backup || !this.state.backup) {
+        this.set({ phase: "backing-up" });
+        await this.saveBackup("automatic, on connect");
+      }
+      this.startLive(conn);
       this.set({ phase: "ready", busy: undefined });
+      void this.readHwdef();
 
       this.hbWatch = setInterval(() => {
         if (this.state.phase === "ready" && Date.now() - this.lastHb > 3500) this.set({ phase: "lost" });
@@ -210,7 +242,131 @@ export class Session {
     this.set({ rebootNeeded: [] });
   }
 
+  // ---- live telemetry (separate store: it changes ~10x a second) ----
+  private liveState: LiveState = { rc: [], rcCount: 0, servo: [] };
+  private liveSubs = new Set<() => void>();
+  get live(): LiveState { return this.liveState; }
+  subscribeLive = (cb: () => void) => { this.liveSubs.add(cb); return () => { this.liveSubs.delete(cb); }; };
+  private setLive(patch: Partial<LiveState>) {
+    this.liveState = { ...this.liveState, ...patch };
+    this.liveSubs.forEach((cb) => cb());
+  }
+
+  private startLive(conn: MavConnection) {
+    conn.on("RC_CHANNELS", (m) => {
+      const f = m.fields as unknown as Record<string, number>;
+      this.setLive({ rc: Array.from({ length: 18 }, (_, i) => f[`chan${i + 1}_raw`] ?? 0), rcCount: f.chancount ?? 0, rssi: f.rssi });
+    });
+    conn.on("SERVO_OUTPUT_RAW", (m) => {
+      const f = m.fields as unknown as Record<string, number>;
+      if ((f.port ?? 0) !== 0) return;
+      this.setLive({ servo: Array.from({ length: 16 }, (_, i) => f[`servo${i + 1}_raw`] ?? 0) });
+    });
+    conn.on("ATTITUDE", (m) => this.setLive({ attitude: { roll: m.fields.roll, pitch: m.fields.pitch, yaw: m.fields.yaw } }));
+    conn.on("NAMED_VALUE_FLOAT", (m) => {
+      if (m.fields.name !== "HSK") return;
+      const v = Math.round(m.fields.value);
+      this.setLive({ hsk: { version: Math.floor(v / 100), state: v % 100, t: Date.now() } });
+    });
+    // ask for what the wizard watches (best effort)
+    for (const [id, hz] of [[65, 10], [36, 10], [30, 10]] as const) void conn.setMessageRate(id, hz).catch(() => {});
+  }
+
+  /** Board hardware definition from ROMFS (exact for the running firmware), if the board has one. */
+  hwdef?: Hwdef;
+  private async readHwdef() {
+    try {
+      const bytes = await this.ftp!.read("@ROMFS/hwdef.dat");
+      this.hwdef = parseHwdef(new TextDecoder().decode(bytes));
+    } catch { this.hwdef = undefined; }
+    this.set({ paramsRev: this.state.paramsRev + 1 });
+  }
+
+  /** MAV_CMD_DO_SET_MODE with a Plane custom mode number. */
+  async setMode(mode: number): Promise<boolean> {
+    if (!this.conn) return false;
+    return (await this.conn.command(176, [1, mode])) === 0;
+  }
+
+  private overrideTimer?: ReturnType<typeof setInterval>;
+  /** Hold RC channels (1-based) at these PWMs, refreshed at 20 Hz, until stopOverride(). Disarmed only. */
+  startOverride(ch: Record<number, number>) {
+    if (this.state.armed) throw new Error("vehicle is armed");
+    if (!this.conn) throw new Error("not connected");
+    clearInterval(this.overrideTimer);
+    const send = () => {
+      const c = this.conn;
+      if (!c) return;
+      const f: Record<string, number> = { target_system: c.target.sysid, target_component: c.target.compid };
+      // 0 = "release this channel" for 1-8; for 9-18 0 also means release in ArduPilot
+      for (let i = 1; i <= 18; i++) f[`chan${i}_raw`] = ch[i] ?? 0;
+      void c.send("RC_CHANNELS_OVERRIDE", f as never).catch(() => {});
+    };
+    send();
+    this.overrideTimer = setInterval(send, 50);
+  }
+  async stopOverride() {
+    clearInterval(this.overrideTimer);
+    this.overrideTimer = undefined;
+    const c = this.conn;
+    if (c) await c.send("RC_CHANNELS_OVERRIDE", { target_system: c.target.sysid, target_component: c.target.compid }).catch(() => {});
+  }
+
+  private rebooting = false;
+  /** Reboot and reopen the same link, re-reading params. Keeps this session's backup. */
+  async rebootAndReconnect(label = "Rebooting the board"): Promise<void> {
+    if (this.state.armed) throw new Error("vehicle is armed");
+    if (!this.opener) throw new Error("this link can't be reopened automatically; reconnect by hand");
+    const keepBackup = this.state.backup;
+    const keepInfo = this.state.info;
+    this.rebooting = true;
+    this.set({ busy: { label, done: 0, total: 1 } });
+    await this.conn?.command(246, [1], { retries: 1 }).catch(() => {});
+    clearInterval(this.hbWatch);
+    clearInterval(this.overrideTimer);
+    await this.conn?.close().catch(() => {});
+    this.conn = undefined;
+    this.set({ phase: "connecting", busy: { label, done: 0, total: 1 } });
+    const t0 = Date.now();
+    let lastErr: unknown;
+    while (Date.now() - t0 < 60000) {
+      await new Promise((r) => setTimeout(r, 2000));
+      let t: Transport;
+      try { t = await this.opener(); } catch (e) { lastErr = e; continue; }
+      this.set({ backup: keepBackup, info: keepInfo, rebootNeeded: [] });
+      await this.attach(t, { backup: false });
+      if (this.state.phase === "ready") { this.rebooting = false; return; }
+      lastErr = new Error(this.state.error);
+    }
+    this.rebooting = false;
+    this.set({ phase: "error", error: `The board didn't come back after the reboot. ${(lastErr as Error)?.message ?? ""}`, busy: undefined });
+  }
+
+  /** Upload a script to the board's scripts folder over MAVLink FTP and verify by reading it back. */
+  async uploadScript(name: string, source: string): Promise<string> {
+    if (!this.canWrite) throw new Error("writing is locked (armed, no backup, or not connected)");
+    const bytes = new TextEncoder().encode(source);
+    const sitl = this.params.has("SIM_RC_FAIL");
+    const dir = sitl ? "scripts" : "/APM/scripts";
+    this.set({ busy: { label: `Uploading ${name}`, done: 0, total: 1 } });
+    try {
+      if (!sitl) await this.ftp!.mkdir("/APM");
+      await this.ftp!.mkdir(dir);
+      const path = `${dir}/${name}`;
+      await this.ftp!.write(path, bytes);
+      const back = await this.ftp!.read(path);
+      if (back.length !== bytes.length || back.some((b, i) => b !== bytes[i])) throw new Error("read-back didn't match what was written");
+      return path;
+    } finally {
+      this.set({ busy: undefined });
+    }
+  }
+
+  /** True when talking to ArduPilot's simulator. */
+  get isSitl(): boolean { return this.params.has("SIM_RC_FAIL"); }
+
   private onLinkClosed(e?: Error) {
+    if (this.rebooting) return;
     if (this.state.phase === "disconnected") return;
     clearInterval(this.hbWatch);
     this.set({ phase: "disconnected", error: e?.message, busy: undefined });
@@ -219,9 +375,26 @@ export class Session {
 
   async disconnect(): Promise<void> {
     clearInterval(this.hbWatch);
+    clearInterval(this.overrideTimer);
+    this.opener = undefined;
     const c = this.conn;
     this.conn = undefined;
     this.set({ phase: "disconnected", busy: undefined });
     await c?.close().catch(() => {});
   }
+}
+
+/** Parse an ArduPilot hwdef.dat: PWM outputs with their timers (later lines win, as in the
+ *  -bdshot variants that redefine pins) and the SERIAL_ORDER. */
+export function parseHwdef(text: string): Hwdef {
+  const pwm = new Map<number, { n: number; timer: string; bidir: boolean }>();
+  let serialOrder: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*/, "").trim();
+    const so = /^SERIAL_ORDER\s+(.+)$/.exec(line);
+    if (so) serialOrder = so[1]!.split(/\s+/);
+    const m = /^P[A-K]\d+\s+\S+\s+(TIM\d+)\s+PWM\((\d+)\)(.*)$/.exec(line);
+    if (m) pwm.set(Number(m[2]), { n: Number(m[2]), timer: m[1]!, bidir: /\bBIDIR\b/.test(m[3]!) });
+  }
+  return { text, pwm: [...pwm.values()].sort((a, b) => a.n - b.n), serialOrder };
 }

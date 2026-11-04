@@ -3,7 +3,9 @@
 A guided, safety-first configurator for ArduPilot Plane, built for our DBF team.
 Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Phase 0 results: [docs/PHASE0.md](docs/PHASE0.md)
 
-## What works today (milestone 1)
+## What works today
+
+### Milestone 1: connect, back up, edit, restore
 
 - **Connect over USB** (Chrome or Edge), or to the simulator through the dev bridge.
 - **Automatic backup** of every parameter on every connect, kept in the browser. Editing stays locked until it exists.
@@ -13,7 +15,29 @@ Design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Phase 0 results: [docs/P
 - **Backups:** download as Mission Planner `.param`; compare any backup (or a `.param` file) with the board and restore selected settings. Calibration values are unticked when the backup came from a different board.
 - **Armed lock:** nothing can be written while the board reports armed, enforced below the UI.
 
-Next: the setup wizard (profile, outputs, surfaces, failsafe).
+## Setup wizard (milestone 2)
+
+The wizard edits an **aircraft profile** (saved per board in the browser; *Save profile file* for the team repo) and compiles it to parameters. Each step applies only its own settings, through the same review and verified write.
+
+| Step | What it does |
+|---|---|
+| Aircraft | Start from the board's current setup (import changes nothing until you edit), start fresh, or open a profile file. |
+| Receiver | ELRS CRSF / MAVLink / SBUS, on which pads; live RC check. |
+| Sticks | Move each stick when asked: the tool finds the channel and its direction (catches reversed radios), then measures stick travel. |
+| Flight modes | MANUAL / FBWA / ACRO only; Mission Planner is blocked from selecting anything else. |
+| Airframe | Templates (conventional, V-tail, flying wing, flaperons, spoilerons) and a per-surface mix editor. Each surface shows whether ArduPilot mixes it natively or the companion script does, and what it falls back to if the script stops. |
+| Outputs | Which pad each servo/ESC is on, with the board's real timer groups (read from the board); DShot / bidirectional / ESC telemetry. Unused outputs are switched off. |
+| Companion script | Installs `husky.lua` over USB (MAVLink FTP), verifies it, reboots and reconnects. |
+| Surface directions | One input at a time: the tool waits until it *sees* the output move, you say which way it went, wrong answers are fixed on the spot (servo reversed, or mix sign for a wrong-side surface). |
+| Trim and throws | Live center and end-point adjustment. |
+| Stabilization check | FBWA tilt test (board attitude confirmed before you answer). |
+| Failsafe | Captures the DBF pose from the board itself (sticks held by RC override, disarmed, MANUAL), applies it, then the transmitter-off test with a per-surface checklist. |
+| Arming | Rudder-stick arming through the script; nuisance pre-arm checks off. |
+| Finish | Every rule finding, every physical check, and anything still different from the board. |
+
+Physical checks are bound to the exact parameters they were done with: change one of them later and the check goes back to "needs re-check".
+
+Not in the wizard yet: orientation/accelerometer calibration, compass, GPS, airspeed, battery, logging, firmware updates.
 
 ## Run it
 

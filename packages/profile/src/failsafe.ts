@@ -10,10 +10,7 @@
  * general mixer (§5.9 of the architecture), which isn't written yet.
  */
 
-export const FN = {
-  FLAP: 2, FLAP_AUTO: 3, AILERON: 4, ELEVATOR: 19, RUDDER: 21, GROUND_STEERING: 26,
-  THROTTLE: 70, THROTTLE_LEFT: 73, THROTTLE_RIGHT: 74,
-} as const;
+import { FN } from "./mixer.ts";
 
 export interface OutputConfig {
   /** 1-based output number */

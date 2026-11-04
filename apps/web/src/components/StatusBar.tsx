@@ -35,7 +35,7 @@ export function StatusBar() {
       <span className="spacer" />
       {s.rebootNeeded.length > 0 && !s.armed && (
         <button className="small warn" title={`Changed: ${s.rebootNeeded.join(", ")}`}
-          onClick={() => { void session.reboot(); }}>
+          onClick={() => { void session.rebootAndReconnect().catch(() => session.reboot()); }}>
           Reboot needed ({s.rebootNeeded.length}): reboot now
         </button>
       )}

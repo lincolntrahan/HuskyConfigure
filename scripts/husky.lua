@@ -8,14 +8,17 @@ Jobs:
   2. Arming gate: registers as an auxiliary arming authoriser, so the vehicle can't arm
      unless this script is running and its checks pass (HSK_GATE bitmask).
   3. Heartbeat: NAMED_VALUE_FLOAT "HSK" once a second (value = state, see STATE_*).
+  4. Mixer for surfaces ArduPilot can't mix natively (spoilerons, one-sided curves…). Each such
+     output keeps a NATIVE fallback SERVOn_FUNCTION (e.g. Aileron for a spoileron, SERVOn_TRIM
+     when nothing native fits) and the script overrides it every loop for 100 ms. If the script
+     stops, the override lapses and ArduPilot's own function takes the output back.
+     (A Script1..16 function would freeze the surface where it was: tested in SITL.)
 
 All values are written by HuskyConfigure from the aircraft profile. Nobody should need to
 edit them by hand. HSK_CFG_HASH lets the gate detect that someone did.
-
-Not yet in this prototype: the mixer for scripted surfaces (spoilerons etc).
 ]]
 
-local VERSION = 1           -- reported in the heartbeat; bump with any behavior change
+local VERSION = 2           -- reported in the heartbeat; bump with any behavior change
 local PARAM_KEY = 74        -- parameter table key, must be unique among running scripts
 local PREFIX = "HSK_"
 local LOOP_MS = 20          -- 50 Hz, Plane's main loop rate
@@ -46,6 +49,12 @@ local LAYOUT = { "ENABLE", "FS_DLY", "CFG_HASH", "GATE", "BLOCK" }       -- slot
 for n = 1, NUM_OUT do LAYOUT[#LAYOUT + 1] = "FS_PWM" .. n end              -- slots 6-21
 LAYOUT[#LAYOUT + 1] = "RUD_ARM"                                           -- slot 22 (v1)
 LAYOUT[#LAYOUT + 1] = "RUD_MS"                                            -- slot 23 (v1)
+LAYOUT[#LAYOUT + 1] = "MIX_N"                                             -- slot 24 (v2)
+local MAX_MIX = 4
+for k = 1, MAX_MIX do                                                     -- slots 25-40 (v2)
+  LAYOUT[#LAYOUT + 1] = "M" .. k .. "_OUT"
+  for t = 1, 3 do LAYOUT[#LAYOUT + 1] = "M" .. k .. "_T" .. t end
+end
 
 local defaults = { ENABLE = 1, FS_DLY = 0, CFG_HASH = 0, GATE = GATE_RC | GATE_CFG | GATE_FS, BLOCK = 0,
                    RUD_ARM = 1, RUD_MS = 2000 }
@@ -99,6 +108,68 @@ local function gate_check(now)
   return nil
 end
 
+--[[ Mixer. A term is packed in one float by packages/profile encodeTerm():
+     code = input_id * 1000 + curve * 250 + (weight * 100 + 100)
+     input_id: 1 roll, 2 pitch, 3 yaw, 4 flap, 5 throttle (ArduPilot's own outputs, so they
+     include stabilization), 100+N raw RC channel N (-1..1), 200+N RC channel N unipolar (0..1).
+     curve: 0 linear, 1 keep positive only, 2 keep negative only. ]]
+local AXIS_FN = { [1] = 4, [2] = 19, [3] = 21, [4] = 3, [5] = 70 }
+local AXIS_SCALE = { [1] = 4500, [2] = 4500, [3] = 4500, [4] = 100, [5] = 100 }
+local MIX_OVERRIDE_MS = 100
+
+local function read_input(id)
+  if AXIS_FN[id] then return SRV_Channels:get_output_scaled(AXIS_FN[id]) / AXIS_SCALE[id] end
+  local ch = rc:get_channel(id % 100)
+  if not ch then return 0 end
+  if id >= 200 then return (ch:norm_input_ignore_trim() + 1) * 0.5 end
+  return ch:norm_input()
+end
+
+local function term_value(code)
+  if code <= 0 then return 0 end
+  local id = math.floor(code / 1000)
+  local rest = code - id * 1000
+  local curve = math.floor(rest / 250)
+  local w = (rest - curve * 250 - 100) / 100
+  local x = w * read_input(id)
+  if curve == 1 and x < 0 then x = 0 elseif curve == 2 and x > 0 then x = 0 end
+  return x
+end
+
+local servo_params = {}  -- output number -> {min, trim, max, rev} Parameter objects
+local function servo(out)
+  local s = servo_params[out]
+  if not s then
+    local p = "SERVO" .. out .. "_"
+    s = { min = Parameter(p .. "MIN"), trim = Parameter(p .. "TRIM"), max = Parameter(p .. "MAX"), rev = Parameter(p .. "REVERSED") }
+    servo_params[out] = s
+  end
+  return s
+end
+
+local function to_pwm(out, v)
+  local s = servo(out)
+  if s.rev:get() ~= 0 then v = -v end
+  if v > 1 then v = 1 elseif v < -1 then v = -1 end
+  local trim = s.trim:get()
+  if v >= 0 then return math.floor(trim + v * (s.max:get() - trim) + 0.5) end
+  return math.floor(trim + v * (trim - s.min:get()) + 0.5)
+end
+
+local function run_mixer()
+  local n = math.floor(P.MIX_N:get())
+  if n > MAX_MIX then n = MAX_MIX end
+  for k = 1, n do
+    -- HSK_Mk_OUT < 0: flip the mix so it agrees with the fallback function's sign convention
+    local o = math.floor(P["M" .. k .. "_OUT"]:get())
+    local out, sign = math.abs(o), (o < 0) and -1 or 1
+    if out >= 1 and out <= NUM_OUT then
+      local v = term_value(P["M" .. k .. "_T1"]:get()) + term_value(P["M" .. k .. "_T2"]:get()) + term_value(P["M" .. k .. "_T3"]:get())
+      SRV_Channels:set_output_pwm_chan_timeout(out - 1, to_pwm(out, sign * v), MIX_OVERRIDE_MS)
+    end
+  end
+end
+
 local function update()
   local now = millis():toint()
   local enabled = P.ENABLE:get() ~= 0
@@ -115,6 +186,9 @@ local function update()
       local pwm = math.floor(FS_PWM[n]:get())
       if pwm > 0 then SRV_Channels:set_output_pwm_chan_timeout(n - 1, pwm, OVERRIDE_MS) end
     end
+  else
+    -- 1b. mixer (the failsafe table already holds the pose for scripted surfaces)
+    run_mixer()
   end
 
   -- 2. arming gate

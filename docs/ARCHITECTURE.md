@@ -356,6 +356,14 @@ With it set, the gate refused when blocked and when the config had been hand-edi
 arming with a good config. Script rudder arming armed on a 2 s hold, ignored a 1 s hold and a
 hold with throttle up, and did nothing with the script stopped.
 
+### 6.5 What milestone 2 changed (tested in SITL)
+
+- **Scripted surfaces run on top of a native fallback.** A Script1..16 output function *freezes* the surface where it was when the script stops (SITL). So each scripted surface keeps a native SERVOn_FUNCTION (a spoileron keeps Aileron; a one-sided spoiler keeps SERVOn_TRIM) and husky.lua overrides it every loop for 100 ms. If the script stops, ArduPilot's own function takes the output back: the spoileron becomes a plain aileron, the spoiler centers. Lua and TypeScript mixers agree to the microsecond across a 15-point stick/slider sweep.
+- **The failsafe pose is measured, not modeled.** The wizard holds the sticks in the pose by RC override (disarmed, MANUAL) and records SERVO_OUTPUT_RAW. Every mix, reversal and scripted surface is captured exactly as ArduPilot produces it. The TypeScript mixer is only used to describe the expected pose to the human.
+- **Servo reversal is never guessed.** The compiler leaves SERVOn_REVERSED alone until the direction check has decided it.
+- **Script parameter tables can't grow on a script restart**; installing a new script version always reboots.
+- **Import from board** reproduces the existing output functions and reversals exactly (unit-tested against last year's layout), so importing writes nothing to outputs.
+
 ## 7. Safety mechanisms (the "idiot-proof" list)
 
 1. **Automatic backup** of every parameter, with a timestamp, before the first write of any session and before any firmware flash. One-click restore.

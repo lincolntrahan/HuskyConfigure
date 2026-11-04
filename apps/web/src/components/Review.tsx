@@ -5,6 +5,10 @@ import { session, useSession } from "../state.ts";
 
 export interface ReviewItem extends WriteChange { from?: number }
 
+/** Options and bitmasks also show the raw number, so a change in an unnamed bit is still visible. */
+const raw = (pm: { v?: unknown; b?: unknown } | undefined, v: number) =>
+  pm?.v || pm?.b ? <span className="muted mono"> ({v})</span> : null;
+
 /**
  * The only way anything gets written: a plain-English list of every change, then a verified
  * write with a per-parameter result. Used by the parameter editor and by backup restore.
@@ -61,9 +65,9 @@ export function Review({ items, meta, title, onDone, onCancel }: {
             return (
               <tr key={c.name} className={bad.length ? "bad-row" : ""}>
                 <td><strong>{pm?.n ?? c.name}</strong><div className="muted mono">{c.name}</div></td>
-                <td>{c.from === undefined ? <span className="muted">new</span> : describeValue(pm, c.from)}</td>
+                <td>{c.from === undefined ? <span className="muted">new</span> : <>{describeValue(pm, c.from)}{raw(pm, c.from)}</>}</td>
                 <td>→</td>
-                <td>{describeValue(pm, c.value)}{bad.length > 0 && <div className="error-text">{bad.join("; ")}</div>}{pm?.rb && <div className="warn-text">needs reboot</div>}</td>
+                <td>{describeValue(pm, c.value)}{raw(pm, c.value)}{bad.length > 0 && <div className="error-text">{bad.join("; ")}</div>}{pm?.rb && <div className="warn-text">needs reboot</div>}</td>
               </tr>
             );
           })}
