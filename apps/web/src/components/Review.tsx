@@ -47,7 +47,7 @@ export function Review({ items, meta, title, onDone, onCancel }: {
           </table>
         )}
         {report.results.length - failed.length > 0 && <p className="muted">{report.results.length - failed.length} verified by reading them back from the board.</p>}
-        {s.rebootNeeded.length > 0 && <p className="warn-box">Some changes only take effect after a reboot. Use the button in the top bar.</p>}
+        {s.rebootNeeded.length > 0 && <p className="warn-box">Some changes need a reboot (button in the top bar).</p>}
         <button className="primary" onClick={() => onDone(report)}>Close</button>
       </div>
     );

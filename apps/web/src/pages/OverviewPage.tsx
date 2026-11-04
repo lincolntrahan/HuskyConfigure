@@ -30,8 +30,8 @@ export function OverviewPage() {
         <div className="card">
           <h3>Backup</h3>
           {s.backup ? (
-            <p>Saved {new Date(s.backup.savedAt).toLocaleString()}: all {s.backup.params.length} parameters, stored on this computer. See <em>Backups</em> to download or restore.</p>
-          ) : <p className="warn-box">No backup yet. Editing stays locked until there is one.</p>}
+            <p>Saved {new Date(s.backup.savedAt).toLocaleString()}: {s.backup.params.length} parameters. Download or restore under Backups.</p>
+          ) : <p className="warn-box">No backup yet. Editing is locked.</p>}
           <h3>Parameter docs</h3>
           {meta ? (
             <p>{meta.quality === "exact" ? "Exact match" : meta.quality === "minor" ? "Close match" : "Best guess"} for this firmware: docs from ArduPlane {meta.set.version}.

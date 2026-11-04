@@ -93,16 +93,17 @@ export function DirectionsStep({ p, d }: { p: Profile; d: Derived }) {
 
   return (
     <StepShell title="Surface directions" d={d}
-      intro={<p>For each surface, move one stick at a time and say which way the surface went. The board is in MANUAL and disarmed, so the motor stays off. Wrong directions get fixed on the spot.</p>}>
+      intro={<p>Move one stick at a time. Say which way the surface moved.</p>}
+      help="Board is in MANUAL and disarmed. Wrong answers are fixed on the spot: the servo is reversed, or the mix is flipped for a wrong-side surface." docs={["fourCh", "manual"]}>
       <PropsGate>
-        {pending.length > 0 && <p className="warn-box">Apply the Sticks and Airframe-and-outputs steps first ({pending.length} setting{pending.length === 1 ? "" : "s"} differ{pending.length === 1 ? "s" : ""} from the board). Testing now would test the old setup.</p>}
+        {pending.length > 0 && <p className="warn-box">Apply Sticks and Airframe first ({pending.length} pending).</p>}
         {surf && term && prompt ? (
           <div className="card test">
             <h2>{surf.name} <span className="muted">S{surf.output} · input {run!.term + 1} of {terms.length}</span></h2>
             {run!.problem === "side" ? (
               <>
                 <p className="error-box">{surf.name} moved the right way for the first input but backwards for this one. That usually means it's set up as the wrong side (left vs right).</p>
-                <button className="primary" onClick={fixSide}>Fix the mix</button> <span className="muted">Then apply the Outputs step again and re-test.</span>
+                <button className="primary" onClick={fixSide}>Fix the mix</button> <span className="muted">Then apply Airframe and re-test.</span>
               </>
             ) : run!.problem === "none" ? (
               <>
@@ -112,7 +113,7 @@ export function DirectionsStep({ p, d }: { p: Profile; d: Derived }) {
             ) : run!.problem ? <p className="error-box">{run!.problem}</p> : (
               <>
                 <div className="big-prompt">{prompt.text}.</div>
-                <p>Then watch <strong>{surf.name}</strong>. Which way did its trailing edge move?</p>
+                <p>Which way did {surf.name} move?</p>
                 <div className="row">
                   <Bar value={live.servo[surf.output! - 1] ?? 0} mark={run!.base} />
                   <span className="mono">{live.servo[surf.output! - 1]} µs</span>
@@ -143,7 +144,7 @@ export function DirectionsStep({ p, d }: { p: Profile; d: Derived }) {
             );
           })}</tbody>
         </table>
-        {testable.length === 0 && <p className="muted">No surfaces plugged into outputs yet (Airframe and outputs step).</p>}
+        {testable.length === 0 && <p className="muted">No surfaces plugged in yet.</p>}
       </PropsGate>
     </StepShell>
   );
@@ -179,9 +180,10 @@ export function StabilizeStep({ p, d }: { p: Profile; d: Derived }) {
 
   return (
     <StepShell title="Stabilization check" d={d}
-      intro={<p>This protects you if someone flips the mode switch by accident, and the GLIDE failsafe relies on it too. In FBWA the board pushes the surfaces to level the plane. Here you tilt the plane by hand and check the surfaces push back the right way.</p>}>
+      intro={<p>Tilt the plane in FBWA. The surfaces must push back.</p>}
+      help="Protects you if FBWA is switched on by accident. The GLIDE failsafe also uses FBWA." docs={["fbwa", "mounting"]}>
       <PropsGate>
-        {!allowed && <p className="muted">FBWA/ACRO aren't on the mode switch, but GLIDE failsafe still uses FBWA, so do this check anyway.</p>}
+        {!allowed && <p className="muted">FBWA isn't on the switch, but GLIDE failsafe uses it. Check anyway.</p>}
         <p>Status: {st === "ok" ? <span className="ok-text">✓ checked</span> : st === "stale" ? <span className="warn-text">needs re-check</span> : <span className="muted">not checked</span>}
           <span className="muted"> · board now in {PLANE_MODES[s.mode] ?? s.mode}, roll {deg(live.attitude?.roll)}°, pitch {deg(live.attitude?.pitch)}°</span></p>
         {phase === "idle" && <button className="primary" disabled={s.armed} onClick={() => void begin()}>Start (switches to FBWA, motor stays off)</button>}
@@ -202,12 +204,12 @@ export function StabilizeStep({ p, d }: { p: Profile; d: Derived }) {
         {phase === "fail" && (
           <div className="error-box">
             <strong>{why}</strong>
-            <p>If the MANUAL direction check passed, the board's mounting orientation is almost certainly wrong (AHRS_ORIENTATION). Don't fly in FBWA until this passes. The board is back in MANUAL.</p>
+            <p>If MANUAL directions passed, the board orientation (AHRS_ORIENTATION) is likely wrong. Don't fly FBWA until this passes. Board is back in MANUAL.</p>
             <button onClick={() => setPhase("idle")}>Try again</button>
           </div>
         )}
         {phase !== "idle" && phase !== "fail" && <button className="link" onClick={() => void end(false, "Stopped.")}>Stop</button>}
-        {session.isSitl && phase !== "idle" && <p className="muted">The simulator can't be tilted by hand; this step needs a real board.</p>}
+        {session.isSitl && phase !== "idle" && <p className="muted">Needs a real board: the simulator can't be tilted.</p>}
       </PropsGate>
     </StepShell>
   );

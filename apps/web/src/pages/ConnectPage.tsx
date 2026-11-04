@@ -27,24 +27,24 @@ export function ConnectPage() {
 
   return (
     <div className="page narrow">
-      <h1>Connect your flight controller</h1>
+      <h1>Connect</h1>
       <ol className="steps">
-        <li><strong>Remove the propeller.</strong> Nothing on this page spins the motor, but other pages can.</li>
-        <li>Plug the flight controller into this computer with USB.</li>
-        <li>Click <em>Connect USB</em> and pick the port named <em>ArduPilot</em> (if there are two, pick the MAVLink one).</li>
+        <li>Remove the propeller</li>
+        <li>Plug in the flight controller by USB</li>
+        <li>Connect USB, then pick the ArduPilot MAVLink port</li>
       </ol>
-      <p className="muted">Before anything can be changed, the tool reads every setting from the board and saves a backup on this computer.</p>
+      <p className="muted">Every setting is backed up before anything can change.</p>
 
       <div className="row">
         <button className="primary big" disabled={busy || !hasSerial} onClick={() => void usb()}>Connect USB</button>
         {busy && <span className="muted">{s.busy?.label ?? "Working…"}</span>}
       </div>
-      {!hasSerial && <p className="warn-box">This browser can't talk to USB devices. Use Google Chrome or Microsoft Edge, or the desktop app.</p>}
+      {!hasSerial && <p className="warn-box">USB needs Chrome or Edge, or the desktop app.</p>}
       {(err || s.phase === "error") && <p className="error-box">{err ?? s.error}</p>}
 
       <details open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
         <summary>Advanced: simulator / bridge</summary>
-        <p className="muted">Connect through <code>tools/bridge.ts</code> to ArduPilot's simulator (SITL) or to a serial port.</p>
+        <p className="muted">Reach the simulator (SITL) or a serial port through tools/bridge.ts.</p>
         <div className="row">
           <input value={url} onChange={(e) => setUrl(e.target.value)} size={28} />
           <button disabled={busy} onClick={() => void bridge()}>Connect bridge</button>

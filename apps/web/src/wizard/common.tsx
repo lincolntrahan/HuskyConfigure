@@ -3,6 +3,7 @@ import { diffCompiled, type Finding, type StepId } from "@husky/profile";
 import { session, useMetadata, useSession } from "../state.ts";
 import { Review } from "../components/Review.tsx";
 import { confirmProps, propsConfirmed, type Derived } from "./store.ts";
+import { Help, type DocKey } from "../components/Help.tsx";
 
 export function useLive() {
   return useSyncExternalStore(session.subscribeLive, () => session.live);
@@ -26,8 +27,8 @@ export function Findings({ findings }: { findings: Finding[] }) {
  * Frame for one wizard step: explanation, the step's findings, its content, and an
  * "Apply to board" button that writes only the parameters this step owns (through Review).
  */
-export function StepShell({ title, intro, steps, d, children, advanced, applyLabel }: {
-  title: string; intro?: ReactNode; steps?: StepId[]; d: Derived; children?: ReactNode; advanced?: ReactNode; applyLabel?: string;
+export function StepShell({ title, intro, help, docs, steps, d, children, advanced, applyLabel }: {
+  title: string; intro?: ReactNode; help?: ReactNode; docs?: DocKey[]; steps?: StepId[]; d: Derived; children?: ReactNode; advanced?: ReactNode; applyLabel?: string;
 }) {
   const s = useSession();
   const meta = useMetadata();
@@ -41,7 +42,7 @@ export function StepShell({ title, intro, steps, d, children, advanced, applyLab
   }
   return (
     <div className="step">
-      <h1>{title}</h1>
+      <h1>{title}{(help || docs) && <Help docs={docs}>{help}</Help>}</h1>
       {intro && <div className="intro">{intro}</div>}
       <Findings findings={mine} />
       {children}
@@ -49,12 +50,12 @@ export function StepShell({ title, intro, steps, d, children, advanced, applyLab
       {steps && (
         <div className="apply">
           {diff.length === 0
-            ? <span className="ok-text">✓ The board already matches this step.</span>
-            : <button className="primary" disabled={!!s.busy} onClick={() => setReviewing(true)}>{applyLabel ?? "Apply to board"}: review {diff.length} change{diff.length === 1 ? "" : "s"}</button>}
+            ? <span className="ok-text">✓ Board matches this step</span>
+            : <button className="primary" disabled={!!s.busy} onClick={() => setReviewing(true)}>{applyLabel ?? "Review and apply"} ({diff.length})</button>}
           {absent.length > 0 && (
             <span className="muted">
-              {absent.length} setting{absent.length === 1 ? "" : "s"} ({absent.slice(0, 3).join(", ")}{absent.length > 3 ? "…" : ""}) {absent.length === 1 ? "isn't" : "aren't"} on the board right now
-              {absent.some((k) => k.startsWith("HSK_")) ? "; the companion script adds its settings once it runs" : absent.some((k) => k.startsWith("SERVO_BLH")) ? "; this firmware has no DShot settings (e.g. the simulator)" : "; some appear only after a reboot"}.
+              {absent.length} not on board yet
+              <Help>{absent.join(", ")}. {absent.some((k) => k.startsWith("HSK_")) ? "Appear once the companion script runs." : absent.some((k) => k.startsWith("SERVO_BLH")) ? "This firmware has no DShot settings (e.g. the simulator)." : "Some appear only after a reboot."}</Help>
             </span>
           )}
         </div>
@@ -72,11 +73,11 @@ export function PropsGate({ children }: { children: ReactNode }) {
     <div className="gate">
       <h3>Before this step</h3>
       <ul>
-        <li><strong>Remove the propeller.</strong></li>
-        <li>Connect the flight battery (USB alone usually doesn't power the servos).</li>
-        <li>Keep hands and cables clear of the control surfaces.</li>
+        <li>Propeller off</li>
+        <li>Flight battery in (USB alone won't power servos)</li>
+        <li>Hands clear of surfaces</li>
       </ul>
-      <button className="primary" onClick={() => { confirmProps(); force((x) => x + 1); }}>The propeller is off</button>
+      <button className="primary" onClick={() => { confirmProps(); force((x) => x + 1); }}>Propeller is off</button>
     </div>
   );
 }
@@ -107,3 +108,4 @@ export function RcBars({ channels = 16, highlight }: { channels?: number; highli
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+

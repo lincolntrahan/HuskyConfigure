@@ -54,7 +54,7 @@ export function EndpointSlider({ min, trim, max, live, reversed, onChange }: {
         const d = e.key === "ArrowRight" ? 5 : e.key === "ArrowLeft" ? -5 : 0;
         if (d) { e.preventDefault(); onChange(f, clampFor(f, vals[f] + d)); }
       }}
-      onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); setDrag(f); }}
+      onPointerDown={(e) => { e.stopPropagation(); try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ } setDrag(f); }}
       onPointerMove={(e) => { if (drag === f) onChange(f, clampFor(f, Math.round(fromPointer(e) / 5) * 5)); }}
       onPointerUp={() => setDrag(null)} />
   );

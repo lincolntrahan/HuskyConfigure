@@ -3,6 +3,7 @@ import { describeValue, validateValue } from "@husky/metadata";
 import { session, useMetadata, useSession } from "../state.ts";
 import { ValueEditor } from "../components/ValueEditor.tsx";
 import { Review, type ReviewItem } from "../components/Review.tsx";
+import { Help } from "../components/Help.tsx";
 
 const LIMIT = 150;
 
@@ -60,7 +61,7 @@ export function ParamsPage() {
     <div className="page">
       <div className="page-head">
         <h1>All parameters</h1>
-        <span className="muted">Advanced: the setup wizard is the normal way to change things.</span>
+        <span className="muted">Advanced. Use the wizard for normal setup.<Help docs={["params"]}>Every parameter on the board, with ArduPilot's own descriptions and limits for this firmware.</Help></span>
       </div>
       <div className="toolbar">
         <input autoFocus placeholder="Search name or description (e.g. SERVO3, airspeed, failsafe)" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -108,3 +109,4 @@ export function ParamsPage() {
     </div>
   );
 }
+

@@ -17,6 +17,8 @@
     "gen:metadata": "tsx tools/gen-metadata/convert.ts"
   },
   "devDependencies": {
+    "@fontsource/roboto-condensed": "^5.1.0",
+    "@fontsource/roboto-mono": "^5.1.0",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

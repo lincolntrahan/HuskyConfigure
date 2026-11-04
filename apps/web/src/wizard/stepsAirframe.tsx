@@ -35,9 +35,10 @@ export function ScriptStep({ d }: { p: Profile; d: Derived }) {
 
   return (
     <StepShell title="Companion script" d={d}
-      intro={<p><code>husky.lua</code> runs on the flight controller. It holds the DBF failsafe pose when the link is lost, owns rudder-stick arming (so a missing or crashed script means the plane can't arm), and mixes surfaces ArduPilot can't (spoilerons).</p>}>
+      intro={<p>Failsafe pose, rudder arming and scripted mixing.</p>}
+      help="husky.lua runs on the flight controller. If it is missing or stopped, the rudder stick cannot arm the plane." docs={["lua"]}>
       {!d.facts.hasScripting ? (
-        <p className="warn-box">This board's firmware has no Lua scripting (F4 boards). The failsafe uses ArduPilot's GLIDE, arming uses ArduPilot's own rudder arming, and scripted surfaces aren't available.</p>
+        <p className="warn-box">No Lua scripting on this board (F4). Failsafe uses GLIDE; arming uses ArduPilot rudder arming.</p>
       ) : (
         <>
           <p className={upToDate ? "ok-box" : "warn-box"}>
@@ -47,7 +48,7 @@ export function ScriptStep({ d }: { p: Profile; d: Derived }) {
             {running ? (upToDate ? "Reinstall" : `Update to version ${BUNDLED_VERSION}`) : "Install the companion script"}
           </button>
           {msg && <p className="muted">{msg}</p>}
-          <p className="muted">Installing uploads the file to the SD card over USB, turns scripting on, and reboots the board (the tool reconnects by itself).</p>
+          <p className="muted">Uploads to the SD card, enables scripting, reboots.</p>
         </>
       )}
     </StepShell>

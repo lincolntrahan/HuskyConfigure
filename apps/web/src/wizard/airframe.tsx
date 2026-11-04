@@ -13,8 +13,9 @@ import {
 } from "@husky/profile";
 import { session, useSession } from "../state.ts";
 import { EndpointSlider, Slider } from "../components/Sliders.tsx";
-import { StepShell, useLive } from "./common.tsx";
+import { Bar, StepShell, useLive } from "./common.tsx";
 import { confirmProps, updateProfile, type Derived } from "./store.ts";
+import { Help } from "../components/Help.tsx";
 
 /** Everything this screen owns on the board. */
 const OWNS: StepId[] = ["outputs", "motor", "directions", "trims"];
@@ -170,7 +171,8 @@ export function AirframeOutputsStep({ p, d }: { p: Profile; d: Derived }) {
 
   return (
     <StepShell title="Airframe and outputs" d={d} steps={OWNS}
-      intro={<p>Lay out the plane, then drag inputs onto each surface and each surface onto the board pad it's plugged into. The tool works out what each surface is (aileron, spoileron, ruddervator…) and how ArduPilot should drive it.</p>}>
+      intro={<p>Place each surface, drag inputs onto it, then drag it to its pad.</p>}
+      help="The tool works out each surface's type (aileron, spoileron, ruddervator...) and whether ArduPilot or the companion script drives it." docs={["servo", "fourCh", "elevon", "vtail", "flaperon"]}>
       <div className="af-toolbar">
         <span className="muted">Start from</span>
         {TEMPLATES.map((t) => <button key={t.id} className="small" title={t.description} onClick={() => applyTemplate(t.id)}>{t.label}</button>)}
@@ -207,7 +209,7 @@ export function AirframeOutputsStep({ p, d }: { p: Profile; d: Derived }) {
         <div className="af-inspector">
           {selSurface ? <SurfaceInspector s={selSurface} p={p} servo={live.servo} onDelete={() => { updateProfile((x) => ({ ...x, surfaces: x.surfaces.filter((y) => y.id !== selSurface.id) })); setSel(null); }} />
             : selMotor ? <MotorInspector m={selMotor} d={d} onDelete={() => { updateProfile((x) => ({ ...x, motors: x.motors.filter((y) => y.id !== selMotor.id) })); setSel(null); }} />
-            : <p className="muted">Click a surface or motor on the plane to set it up. Drag to move it; drag its corner to resize. Drag an input chip onto empty space to make a new surface.</p>}
+            : <p className="muted">Select a surface or motor. Drag to move, drag the corner to resize. Drop an input on empty space to add a surface.</p>}
         </div>
       </div>
 
@@ -218,12 +220,12 @@ export function AirframeOutputsStep({ p, d }: { p: Profile; d: Derived }) {
 }
 
 // ---------- palette ----------
-function Chip({ input, p }: { input: string; p: Profile }) {
+function Chip({ input, p, text }: { input: string; p: Profile; text?: string }) {
   return (
     <span className={`chip-in ${(AXES as readonly string[]).includes(input) ? "axis" : "custom"}`} draggable
       onDragStart={(e) => { e.dataTransfer.setData(MIME_INPUT, input); e.dataTransfer.effectAllowed = "copy"; }}
       title="Drag onto a surface (or onto empty space to make a new one)">
-      {inputLabel(input, p.inputs)}
+      {text ?? inputLabel(input, p.inputs)}
     </span>
   );
 }
@@ -237,7 +239,6 @@ function MiniBar({ v, unipolar }: { v: number; unipolar?: boolean }) {
 /** All inputs, always visible and editable, whatever is selected on the plane. */
 function InputsBox({ p, rc }: { p: Profile; rc: number[] }) {
   const tx = fromTransmitter(p, rc);
-  const used = new Set(p.surfaces.flatMap((s) => s.mix.map((t) => t.in)));
   const editIn = (id: string, patch: Partial<CustomInput>) => updateProfile((x) => ({ ...x, inputs: x.inputs.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
   const taken = (ch: number, self?: string) =>
     [p.rc.roll, p.rc.pitch, p.rc.throttle, p.rc.yaw, p.modes.channel].includes(ch) || (p.flapChannel === ch && self !== "flap") || p.inputs.some((i) => i.rc === ch && i.id !== self);
@@ -247,38 +248,74 @@ function InputsBox({ p, rc }: { p: Profile; rc: number[] }) {
       {Array.from({ length: 16 }, (_, k) => k + 1).map((c) => <option key={c} value={c} disabled={c !== value && taken(c, self)}>RC{c}{c !== value && taken(c, self) ? " (in use)" : ""}</option>)}
     </select>
   );
+  /** Surfaces whose mix uses this input. */
+  const usedBy = (id: string) => p.surfaces.filter((x) => x.mix.some((t) => t.in === id)).map((x) => x.name);
+  /** Take an input off every surface (and the input list, for custom ones). */
+  function remove(id: string, label: string) {
+    const users = usedBy(id);
+    if (users.length && !confirm(`Delete "${label}"?\n\nIt is mixed into ${users.join(", ")}. Those surfaces will stop responding to it.`)) return;
+    updateProfile((x) => ({
+      ...x,
+      inputs: x.inputs.filter((y) => y.id !== id),
+      flapChannel: id === "flap" ? undefined : x.flapChannel,
+      surfaces: x.surfaces.map((y) => (y.mix.some((t) => t.in === id) ? normalizeSurface({ ...y, mix: y.mix.filter((t) => t.in !== id) }, x.inputs.filter((z) => z.id !== id)) : y)),
+    }));
+  }
+  const pct = (v: number | undefined) => (v === undefined ? "—" : `${Math.round(v * 100)}%`);
+  const usage = (id: string) => {
+    const u = usedBy(id);
+    return <span className="in-used muted" title={u.join(", ")}>{u.length ? u.join(", ") : "not used"}</span>;
+  };
+  const del = (id: string, label: string) => <button className="small link in-del" title={`Delete ${label}`} onClick={() => remove(id, label)}>×</button>;
+  const flapOn = p.flapChannel !== undefined;
+
   return (
     <div className="inputs-box">
-      <div className="row tight"><strong>Inputs</strong><span className="muted">drag a chip onto a surface</span><span className="spacer" />
+      <div className="row tight"><h3>Inputs</h3><span className="muted">drag a name onto a surface</span><span className="spacer" />
+        {!flapOn && <button className="small" onClick={() => {
+          const free = Array.from({ length: 16 }, (_, k) => k + 1).find((c) => c >= 5 && !taken(c, "flap")) ?? 6;
+          updateProfile((x) => ({ ...x, flapChannel: free }));
+        }}>+ Flap</button>}
         <button className="small" onClick={() => {
           const free = Array.from({ length: 16 }, (_, k) => k + 1).find((c) => c >= 5 && !taken(c)) ?? 9;
           updateProfile((x) => ({ ...x, inputs: [...x.inputs, { id: `in-${Date.now().toString(36)}`, label: "New input", rc: free, range: "unipolar" }] }));
         }}>+ New input</button></div>
-      <div className="inputs-grid">
+      <div className="in-list">
+        <div className="in-row head muted"><span>Input</span><span>Channel</span><span>Travel</span><span>Live</span><span /><span>Used by</span><span /></div>
         {(["roll", "pitch", "yaw"] as const).map((a) => (
           <div key={a} className="in-row">
             <Chip input={a} p={p} />
-            <span className="muted">RC{p.rc[a]} · set in Sticks</span>
+            <span className="muted" title="Set in the Sticks step">RC{p.rc[a]}</span>
+            <span className="muted">centered ±</span>
             <MiniBar v={tx[a] ?? 0} />
+            <span className="mono in-val">{pct(tx[a])}</span>
+            {usage(a)}
+            <span className="muted in-del" title="Stick axes can't be deleted">·</span>
           </div>
         ))}
-        <div className="in-row">
-          <Chip input="flap" p={p} />
-          {chSelect(p.flapChannel, (c) => updateProfile((x) => ({ ...x, flapChannel: c })), "flap")}
-          <MiniBar v={tx.flap ?? 0} unipolar />
-        </div>
+        {flapOn && (
+          <div className="in-row">
+            <Chip input="flap" p={p} />
+            {chSelect(p.flapChannel, (c) => updateProfile((x) => ({ ...x, flapChannel: c })), "flap")}
+            <span className="muted">off → full</span>
+            <MiniBar v={tx.flap ?? 0} unipolar />
+            <span className="mono in-val">{pct(tx.flap)}</span>
+            {usage("flap")}
+            {del("flap", "Flap")}
+          </div>
+        )}
         {p.inputs.map((i) => (
           <div key={i.id} className="in-row">
-            <Chip input={i.id} p={p} />
-            <input className="in-name" value={i.label} onChange={(e) => editIn(i.id, { label: e.target.value })} aria-label="Input name" />
+            <span className="in-named"><Chip input={i.id} p={p} text="⠿ drag" />
+              <input className="in-name" value={i.label} onChange={(e) => editIn(i.id, { label: e.target.value })} aria-label="Input name" title="Rename" /></span>
             {chSelect(i.rc, (c) => c && editIn(i.id, { rc: c }), i.id)}
             <select className="small" value={i.range} onChange={(e) => editIn(i.id, { range: e.target.value as CustomInput["range"] })}>
               <option value="unipolar">off → full</option><option value="bipolar">centered ±</option>
             </select>
             <MiniBar v={tx[i.id] ?? 0} unipolar={i.range === "unipolar"} />
-            {used.has(i.id)
-              ? <span className="muted" title="Used by a surface">in use</span>
-              : <button className="small link" onClick={() => updateProfile((x) => ({ ...x, inputs: x.inputs.filter((y) => y.id !== i.id) }))}>remove</button>}
+            <span className="mono in-val">{pct(tx[i.id])}</span>
+            {usage(i.id)}
+            {del(i.id, i.label)}
           </div>
         ))}
       </div>
@@ -332,7 +369,7 @@ function PlaneCanvas({ p, sel, setSel, deflection, onNewSurface, setMsg }: {
     e.stopPropagation();
     setSel({ type, id });
     const svg = svgRef.current!;
-    (e.target as Element).setPointerCapture(e.pointerId);
+    try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     drag.current = { kind, type, id, start: svgPoint(svg, e.clientX, e.clientY), orig: pos };
   }
   function move(e: RPointerEvent) {
@@ -436,7 +473,7 @@ function SurfaceInspector({ s, p, servo, onDelete }: { s: Surface; p: Profile; s
       {s.kind !== "fixed" && (
         <>
           <label className="check"><input type="checkbox" checked={upright} onChange={(e) => editSurface(s.id, (x) => ({ ...x, upright: e.target.checked }))} /> stands upright (rudder, steering)</label>
-          {s.mix.length === 0 && <p className="muted">Drag an input chip onto this surface, or add one here.</p>}
+          {s.mix.length === 0 && <p className="muted">No inputs. Drag one on, or add below.</p>}
           {s.mix.map((t, k) => {
             const u = termToUi(t);
             const q = inputQuestion(t.in, s, p.inputs);
@@ -476,16 +513,15 @@ function SurfaceInspector({ s, p, servo, onDelete }: { s: Surface; p: Profile; s
       )}
       {s.kind !== "fixed" && (
         <div className="term">
-          <div className="row tight"><strong>Servo travel</strong><span className="spacer" />
+          <div className="row tight"><strong>Servo travel</strong><Help docs={["fourCh"]}>Center: surface straight. Ends: full throw without the servo buzzing. Reverse PWM if the servo moves opposite to the diagram.</Help><span className="spacer" />
             <label className="check"><input type="checkbox" checked={!!s.reversed} onChange={(e) => editSurface(s.id, (x) => ({ ...x, reversed: e.target.checked }))} /> Reverse PWM</label></div>
           <EndpointSlider min={ep.min} trim={ep.trim} max={ep.max} reversed={!!s.reversed} live={s.output ? servo[s.output - 1] : undefined}
             onChange={(f, us) => editSurface(s.id, (x) => ({ ...x, min: ep.min, trim: ep.trim, max: ep.max, [f]: us }))} />
-          <span className="muted">Set the center so the surface is straight, then each end so it goes as far as it should without the servo buzzing. Reverse PWM if the servo moves opposite to the picture.</span>
         </div>
       )}
       <p>Plugged into: <strong>{s.output ? `S${s.output}` : "nothing yet"}</strong> {s.output
         ? <button className="small link" onClick={() => assignOutput({ type: "surface", id: s.id }, undefined)}>unplug</button>
-        : <span className="muted">(drag it onto a pad below, or click a pad)</span>}</p>
+        : <span className="muted">(drag to a pad below)</span>}</p>
       {(s.kind === "mechanism" || s.kind === "fixed") && (
         <label className="field inline">During RC-loss failsafe
           <select value={s.failsafe ?? "hold"} onChange={(e) => editSurface(s.id, (x) => ({ ...x, failsafe: e.target.value as Surface["failsafe"] }))}>
@@ -499,8 +535,7 @@ function SurfaceInspector({ s, p, servo, onDelete }: { s: Surface; p: Profile; s
         )}
         {s.mix.length > 1 && (
           <div className="term">
-            <strong>Mix ratio</strong>
-            <span className="muted">How strongly each input moves this surface when several are mixed. The servo travel above sets the overall range.</span>
+            <strong>Mix ratio<Help>How hard each input drives this surface when several are mixed. Servo travel sets the overall range.</Help></strong>
             {s.mix.map((t, k) => {
               const u = termToUi(t);
               return (
@@ -608,7 +643,7 @@ function Stick({ x, y, onChange, springX = true, springY = true, label }: {
   };
   return (
     <div className="stickbox">
-      <div ref={ref} className="stick" onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); set(e); }}
+      <div ref={ref} className="stick" onPointerDown={(e) => { try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ } set(e); }}
         onPointerMove={(e) => { if (e.buttons) set(e); }}
         onPointerUp={() => onChange(springX ? 0 : x, springY ? 0 : y)}>
         <span className="knob" style={{ left: `${(x + 1) * 50}%`, top: `${(y + 1) * 50}%` }} />
@@ -625,7 +660,7 @@ function Preview({ p, inputs, setPreview, followTx, setFollowTx, hasTx }: {
   const thrY = 1 - 2 * (inputs.throttle ?? 0); // screen y: up = full
   return (
     <div className="preview">
-      <span className="muted">Try it:</span>
+      <span className="muted">Preview</span>
       <Stick label="throttle / yaw" x={inputs.yaw ?? 0} y={thrY} springY={false}
         onChange={(x, y) => setPreview((i) => ({ ...i, yaw: x, throttle: (1 - y) / 2 }))} />
       <Stick label="pitch / roll" x={inputs.roll ?? 0} y={inputs.pitch ?? 0}
@@ -682,46 +717,69 @@ function BoardStrip({ p, d, sel, setSel, setMsg, servo }: {
     assignOutput(thing, n);
   }
 
+  /** What drives a surface: ArduPilot's own function, or the script (with its fallback). */
+  function driver(t: Surface | Motor): string {
+    if ("protocol" in t) return t.protocol === "PWM" ? "motor · PWM" : `motor · ${t.protocol}${t.bidir ? " bidir" : ""}`;
+    if (t.kind === "fixed") return `function ${t.fixedFunction ?? "?"}`;
+    const nat = nativeFunction(t, p);
+    return nat ? nat.label : `script · else ${fallbackFunction(t, p).label}`;
+  }
+  const drag = (e: DragEvent, type: "surface" | "motor", id: string) => e.dataTransfer.setData(MIME_THING, JSON.stringify({ type, id }));
+  const accepts = (e: DragEvent) => { if (e.dataTransfer.types.includes(MIME_THING)) e.preventDefault(); };
+
   return (
     <div className="board">
-      <div className="row tight"><h3>Board</h3>
-        <span className="muted">{groups ? "Pads with the same color share a hardware timer." : "This board didn't report its timer layout, so shared timers can't be checked."}
-          {bidir.size > 0 && " ⚡ = can do bidirectional DShot."}</span></div>
-      <div className="pads">
-        {pads.map((n) => {
-          const t = onPad(n);
-          const g = groupOf(n);
-          const locked = dshotGroups.has(g) && !(t && "protocol" in t);
-          return (
-            <div key={n} className={`pad ${g >= 0 ? GROUP_CLASS[g % 8] : ""} ${t && sel?.id === t.id ? "sel" : ""} ${locked && !t ? "locked" : ""}`}
-              title={locked && !t ? "Locked: shares a timer with a DShot motor" : `S${n}`}
-              onDragOver={(e) => { if (e.dataTransfer.types.includes(MIME_THING)) e.preventDefault(); }}
-              onDrop={(e) => { const raw = e.dataTransfer.getData(MIME_THING); if (raw) { e.preventDefault(); put(JSON.parse(raw) as NonNullable<Sel>, n); } }}
-              onClick={() => {
-                if (t) setSel({ type: "protocol" in t ? "motor" : "surface", id: t.id });
-                else if (sel) put(sel, n);
-              }}>
-              <div className="pad-n">S{n}{bidir.has(n) ? " ⚡" : ""}</div>
-              {t ? (
-                <div className="pad-item" draggable onDragStart={(e) => e.dataTransfer.setData(MIME_THING, JSON.stringify({ type: "protocol" in t ? "motor" : "surface", id: t.id }))}>{t.name}</div>
-              ) : <div className="pad-item muted">{locked ? "locked" : "free"}</div>}
-              <div className="pad-pwm mono">{servo[n - 1] || ""}</div>
-            </div>
-          );
-        })}
-      </div>
-      {unplugged.length > 0 && (
-        <div className="row tight tray">
-          <span className="muted">Not plugged in (drag onto a pad):</span>
-          {unplugged.map((u) => (
-            <span key={u.id} className={`chip-in thing ${sel?.id === u.id ? "sel" : ""}`} draggable
-              onDragStart={(e) => e.dataTransfer.setData(MIME_THING, JSON.stringify({ type: u.type, id: u.id }))}
-              onClick={() => setSel({ type: u.type, id: u.id })}>{u.name}</span>
-          ))}
+      <div className="row tight"><h3>Board outputs</h3>
+        <span className="muted">{groups ? "Border = timer group" : "Timer layout unknown"}<Help docs={["dshot"]}>Outputs on one hardware timer must use the same signal type. A DShot motor locks its whole group for servos. Pads in one group share a border style and are spaced apart from the next group. ⚡ = can do bidirectional DShot. Empty pads are turned off.</Help></span></div>
+      <div className="board-body">
+        <div className="pad-list">
+          {pads.map((n, i) => {
+            const t = onPad(n);
+            const g = groupOf(n);
+            const newGroup = i > 0 && g !== groupOf(n - 1);
+            const locked = dshotGroups.has(g) && !(t && "protocol" in t);
+            const type = t && "protocol" in t ? "motor" : "surface";
+            return (
+              <div key={n} className={`pad-row ${newGroup ? "gstart" : ""} ${t && sel?.id === t.id ? "sel" : ""}`}
+                onDragOver={accepts}
+                onDrop={(e) => { const raw = e.dataTransfer.getData(MIME_THING); if (raw) { e.preventDefault(); put(JSON.parse(raw) as NonNullable<Sel>, n); } }}
+                onClick={() => { if (t) setSel({ type, id: t.id }); else if (sel) put(sel, n); }}>
+                <div className={`pad ${g >= 0 ? GROUP_CLASS[g % 8] : ""} ${locked && !t ? "locked" : ""}`}
+                  title={locked && !t ? "Locked: shares a timer with a DShot motor" : `Output S${n}`}>
+                  S{n}{bidir.has(n) && <span className="bolt">⚡</span>}
+                </div>
+                {t ? (
+                  <div className="pad-thing" draggable onDragStart={(e) => drag(e, type, t.id)} title="Drag to another pad, or to Not plugged in">
+                    <span className="pad-name">{t.name}</span>
+                    <span className="pad-fn muted">{driver(t)}</span>
+                    <Bar value={servo[n - 1] ?? 0} />
+                    <span className="pad-pwm mono">{servo[n - 1] || "—"}</span>
+                    <button className="small link" title="Unplug" onClick={(e) => { e.stopPropagation(); assignOutput({ type, id: t.id }, undefined); }}>×</button>
+                  </div>
+                ) : (
+                  <div className={`pad-empty ${locked ? "bad-text" : "muted"}`} title={!locked && sel ? "Click to put the selected item here" : undefined}>
+                    {locked ? "locked by DShot timer" : "free"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      )}
-      <p className="muted">Pads with nothing on them are switched off, so nothing left over from an old setup keeps driving a servo.</p>
+        <div className="tray-box" onDragOver={accepts}
+          onDrop={(e) => { const raw = e.dataTransfer.getData(MIME_THING); if (raw) { e.preventDefault(); assignOutput(JSON.parse(raw) as NonNullable<Sel>, undefined); } }}>
+          <h3>Not plugged in</h3>
+          {unplugged.length === 0
+            ? <p className="muted">Everything is on a pad.</p>
+            : unplugged.map((u) => (
+              <div key={u.id} className={`tray-item ${sel?.id === u.id ? "sel" : ""}`} draggable
+                onDragStart={(e) => drag(e, u.type, u.id)}
+                onClick={() => setSel({ type: u.type, id: u.id })}><span>{u.name}</span><span className="muted">{u.type}</span></div>
+            ))}
+          <p className="muted small-text">Drag onto a pad, or select one and click a free pad. Drop a pad's item here to unplug it.</p>
+        </div>
+      </div>
     </div>
   );
 }
+
 

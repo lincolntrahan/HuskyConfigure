@@ -34,7 +34,11 @@ export function PeripheralsStep({ p, d }: { p: Profile; d: Derived }) {
       delete portBaud[n];
       return { ...x, ports: next, portBaud };
     });
-  const setBaud = (n: number, b: number) => updateProfile((x) => ({ ...x, ports: profilePorts(x), portBaud: { ...(x.portBaud ?? {}), [n]: b } }));
+  // a port still on "keep" gets pinned to what it is now, so its new speed is actually written
+  const setBaud = (n: number, b: number, eff: PeripheralKind) => updateProfile((x) => {
+    const cur = profilePorts(x);
+    return { ...x, ports: { ...cur, [n]: (cur[n] ?? "keep") === "keep" ? eff : cur[n]! }, portBaud: { ...(x.portBaud ?? {}), [n]: b } };
+  });
 
   const gpsOk = live.gps && Date.now() - live.gps.t < 3000 && live.gps.fix >= 1;
   const rcOk = live.rcCount > 0 && live.rc.slice(0, 4).some((v) => v > 800);
@@ -89,7 +93,8 @@ export function PeripheralsStep({ p, d }: { p: Profile; d: Derived }) {
   const busy = !!probe && !probe.done;
   return (
     <StepShell title="Peripherals" d={d} steps={["receiver"]}
-      intro={<p>What's plugged into each serial port. ArduPilot only recognizes a device on a port that's set to the right type, so if you don't know which pads something is on, use <em>Find</em>: it tries each free port in turn.</p>}>
+      intro={<p>Set what is connected to each serial port.</p>}
+      help="ArduPilot only sees a device on a port set to its type. Unsure which port? Use Find." docs={["serial", "rc", "elrs", "gps", "escTelem", "telemetry"]}>
       <table className="grid ports">
         <thead><tr><th>Port</th><th>Pads</th><th>Device</th><th>Speed</th><th>On the board now</th><th>Status</th></tr></thead>
         <tbody>{portNums.map((n) => {
@@ -101,12 +106,12 @@ export function PeripheralsStep({ p, d }: { p: Profile; d: Derived }) {
             <tr key={n}>
               <td className="mono">SERIAL{n}</td>
               <td>{padLabel(n, order) || <span className="muted">—</span>}</td>
-              <td><select value={kind} disabled={busy} onChange={(e) => setPort(n, e.target.value as PeripheralKind)}>
-                <option value="keep">leave as it is</option>
+              <td><select value={eff} disabled={busy} onChange={(e) => setPort(n, e.target.value as PeripheralKind)}>
+                {eff === "keep" && <option value="keep">other (protocol {now(n)}), unchanged</option>}
                 {KIND_ORDER.map((k) => <option key={k} value={k}>{PERIPHERALS[k as Exclude<PeripheralKind, "keep">].label}</option>)}
-              </select>{info && kind !== "keep" && <div className="muted small-text">{info.help}</div>}</td>
+              </select>{info && eff !== "none" && <div className="muted small-text">{info.help}</div>}</td>
               <td>{info?.baud !== undefined && eff !== "rc" && eff !== "rc-elrs"
-                ? <select value={baud ?? info.baud} disabled={busy || kind === "keep"} onChange={(e) => setBaud(n, Number(e.target.value))}>
+                ? <select value={baud ?? info.baud} disabled={busy} onChange={(e) => setBaud(n, Number(e.target.value), eff)}>
                     {BAUDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
                 : <span className="muted">{eff.startsWith("rc") ? "automatic" : "—"}</span>}</td>
@@ -119,7 +124,7 @@ export function PeripheralsStep({ p, d }: { p: Profile; d: Derived }) {
 
       <div className="card">
         <h3>Find a device</h3>
-        <p className="muted">Board disarmed, propeller off. Each try is one reboot. Only ports set to Nothing are tried, and they're put back if the device isn't there.</p>
+        <p className="muted">Disarmed, propeller off. One reboot per port tried. Ports that don't answer are set back.</p>
         <div className="row">
           <button disabled={busy || !session.canWrite} onClick={() => void find("gps")}>Find my GPS</button>
           <button disabled={busy || !session.canWrite || rcOk} title={rcOk ? "RC is already arriving" : ""} onClick={() => void find("rc-elrs")}>Find my receiver</button>
@@ -131,7 +136,7 @@ export function PeripheralsStep({ p, d }: { p: Profile; d: Derived }) {
 
       <div className="card">
         <h3>Sensors the board found by itself</h3>
-        <p className="muted">I2C and SPI sensors are detected at every boot; nothing to configure here.</p>
+        <p className="muted">Detected at boot. Nothing to set.</p>
         {sensors.length === 0 ? <p className="muted">None reported.</p> : (
           <table className="grid compact"><tbody>{sensors.map((x) => (
             <tr key={x.param}><td>{x.role}</td><td>{describeDev(x.dev)}</td>

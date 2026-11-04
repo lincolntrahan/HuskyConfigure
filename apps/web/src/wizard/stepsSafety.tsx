@@ -5,6 +5,7 @@ import { Review } from "../components/Review.tsx";
 import { Findings, PropsGate, StepShell, sleep, useLive } from "./common.tsx";
 import { boardMap, check, downloadJson, passCheck, updateProfile, type Derived } from "./store.ts";
 import { BUNDLED_VERSION } from "./stepsAirframe.tsx";
+import { Help } from "../components/Help.tsx";
 
 /** Inputs in the DBF pose: full right roll, full up elevator, full right rudder, full flaps, throttle closed, extras off. */
 const POSE_INPUTS: Record<string, number> = { roll: 1, pitch: 1, yaw: 1, flap: 1, throttle: 0 };
@@ -84,20 +85,21 @@ export function FailsafeStep({ p, d }: { p: Profile; d: Derived }) {
   return (
     <StepShell title="Failsafe" d={d} steps={["failsafe"]}
       intro={pose
-        ? <p>When the RC link is lost for {p.failsafe.delayMs / 1000} s, every surface goes to the DBF pose: <strong>throttle closed, full up elevator, full right rudder, full right aileron, full flaps down, spoilers stowed</strong>. It lets go the moment the link comes back. Underneath, ArduPilot's own failsafe is set to GLIDE in case the script ever stops.</p>
-        : <p>This board can't run the companion script, so the RC-loss failsafe is ArduPilot's GLIDE: throttle off, wings level (FBWA).</p>}>
+        ? <p>RC lost for {p.failsafe.delayMs / 1000} s: throttle closed, full up elevator, right rudder, right aileron, flaps down, spoilers stowed.</p>
+        : <p>RC lost: ArduPilot GLIDE (throttle off, wings level).</p>}
+      help={pose ? "Released as soon as the link returns. ArduPilot GLIDE is set underneath in case the script stops." : "This board can't run the companion script, so the DBF pose isn't available."} docs={["failsafe"]}>
       <PropsGate>
         <label className="field inline">Link loss → failsafe after
           <input className="num short" type="number" min={500} max={10000} step={100} value={p.failsafe.delayMs}
             onChange={(e) => updateProfile((x) => ({ ...x, failsafe: { ...x.failsafe, delayMs: Number(e.target.value) } }))} /> ms
         </label>
-        {pose && !scriptOk && <p className="warn-box">The companion script (version {BUNDLED_VERSION}) isn't running. Install it in the Companion script step first.</p>}
-        {earlier.length > 0 && <p className="warn-box">Apply the Sticks and Airframe-and-outputs steps first. The pose is captured from the board as it is now.</p>}
+        {pose && !scriptOk && <p className="warn-box">Companion script v{BUNDLED_VERSION} not running. Install it first.</p>}
+        {earlier.length > 0 && <p className="warn-box">Apply Sticks and Airframe first. The pose is captured from the current setup.</p>}
 
         {pose && (
           <div className="card">
             <h3>1. Capture the pose</h3>
-            <p className="muted">The tool holds the sticks in the failsafe position (through the USB link, board disarmed in MANUAL) and records exactly what every output does, including mixing and reversals.</p>
+            <p className="muted">Records every output in the pose.<Help>Holds the sticks in the pose over USB (disarmed, MANUAL) and reads what each output does, including mixing and reversal.</Help></p>
             <table className="grid compact"><tbody>
               {describePose(p).map(({ s: x, text }) => (
                 <tr key={x.id}><td>{x.name}</td><td>S{x.output}</td><td>{text}</td><td className="mono">{captured?.[x.output! - 1] || ""}</td></tr>
@@ -113,7 +115,7 @@ export function FailsafeStep({ p, d }: { p: Profile; d: Derived }) {
 
         <div className="card">
           <h3>{pose ? "3" : "2"}. Test it</h3>
-          <p className="muted">After applying (button at the bottom), turn the transmitter off and watch.</p>
+          <p className="muted">Apply first (bottom), then switch the transmitter off.</p>
           {phase === "idle" || phase === "done" || phase === "fail" ? (
             <button className="primary" disabled={pending.length > 0 || (pose && (!captured || !scriptOk))} onClick={() => setPhase(pose ? "off" : "glide-off")}>
               {st === "ok" ? "Test again" : "Start the test"}
@@ -154,7 +156,8 @@ export function ArmingStep({ p, d }: { p: Profile; d: Derived }) {
   const set = (patch: Partial<Profile["arming"]>) => updateProfile((x) => ({ ...x, arming: { ...x.arming, ...patch } }));
   return (
     <StepShell title="Arming" d={d} steps={["arming"]}
-      intro={<p>Arm by holding <strong>right rudder with the throttle all the way down for 2 seconds</strong>. ArduPilot's nuisance pre-arm checks are switched off. Instead the companion script decides, and only refuses for things that matter (no RC link, settings edited by hand, failsafe pose not set).</p>}>
+      intro={<p>Arm: full right rudder, throttle down, hold 2 s.</p>}
+      help="ArduPilot pre-arm checks are off. The companion script blocks arming only for real problems: no RC, settings edited by hand, failsafe pose not set." docs={["arming", "prearm"]}>
       <div className="choices">
         <label className={`choice ${p.arming.method === "rudder-script" ? "on" : ""}`}>
           <input type="radio" checked={p.arming.method === "rudder-script"} disabled={!d.facts.hasScripting} onChange={() => set({ method: "rudder-script" })} />
@@ -214,8 +217,9 @@ export function FinishStep({ p, d }: { p: Profile; d: Derived }) {
       </div>
       <div className="card">
         <h3>Not in the wizard yet</h3>
-        <p className="muted">Board orientation and accelerometer calibration, compass, GPS, airspeed, battery monitor, logging and firmware updates. Do these in Mission Planner for now. The wizard leaves those settings alone.</p>
+        <p className="muted">Use Mission Planner for: orientation, accel calibration, compass, GPS, airspeed, battery, logging, firmware.</p>
       </div>
     </div>
   );
 }
+

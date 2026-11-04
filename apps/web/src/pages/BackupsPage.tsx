@@ -67,7 +67,7 @@ export function BackupsPage() {
   return (
     <div className="page">
       <h1>Backups</h1>
-      <p className="muted">A full backup is saved automatically every time you connect. Backups are kept in this browser on this computer, so download the important ones.</p>
+      <p className="muted">Saved on every connect, in this browser only. Download the ones that matter.</p>
       <div className="toolbar">
         <button disabled={s.phase !== "ready" || !!s.busy} onClick={() => void backupNow()}>Back up now</button>
         <label className="file-btn">Restore from a .param file…
@@ -98,10 +98,10 @@ export function BackupsPage() {
       {source && (
         <div className="card">
           <h3>Compared with the board now: {source.savedAt ? new Date(source.savedAt).toLocaleString() : source.label}</h3>
-          {otherBoard && <p className="warn-box">This backup came from a different flight controller. Its calibration values are unticked, because they belong to that board.</p>}
-          {!source.boardUid && <p className="warn-box">This file doesn't say which board it came from. Calibration values are unticked. Tick them only if it's from this board.</p>}
+          {otherBoard && <p className="warn-box">From a different board: its calibration values are unticked.</p>}
+          {!source.boardUid && <p className="warn-box">Unknown board: calibration values are unticked. Tick them only if it's from this board.</p>}
           {unknown > 0 && <p className="muted">{unknown} setting{unknown === 1 ? "" : "s"} in the backup don't exist on this firmware and are ignored.</p>}
-          {diff.length === 0 ? <p>No differences. The board already matches this backup.</p> : (
+          {diff.length === 0 ? <p>No differences.</p> : (
             <>
               <table className="grid">
                 <thead><tr><th></th><th>Setting</th><th>Board now</th><th>Backup</th></tr></thead>

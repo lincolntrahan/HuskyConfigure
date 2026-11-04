@@ -26,7 +26,7 @@ export function StartStep({ p, d }: { p: Profile | null; d: Derived | null }) {
     return (
       <div className="step">
         <h1>Set up an aircraft</h1>
-        <p className="intro">The wizard describes the airplane (surfaces, mixes, which pad each servo is plugged into), works out the parameters, and walks you through checking every surface by eye. Nothing is written without a review.</p>
+        <p className="intro">Describe the plane. The tool sets the parameters and walks you through checking each surface. Nothing is written without review.</p>
         <label className="field">Aircraft name <input value={name} placeholder="e.g. Mako V3 SN-1" onChange={(e) => setName(e.target.value)} /></label>
         <div className="choices">
           <button className="choice" onClick={() => setProfile(bind(inferProfile(boardMap(), { name: name || "Imported from board", outputs: facts.outputs, hasScripting: facts.hasScripting })))}>
@@ -61,7 +61,7 @@ export function StartStep({ p, d }: { p: Profile | null; d: Derived | null }) {
       <label className="field">Notes <textarea rows={3} value={p.notes ?? ""} onChange={(e) => updateProfile((x) => ({ ...x, notes: e.target.value }))} /></label>
       {other && <p className="warn-box">This profile is bound to a different flight controller. Physical checks done there don't count here.</p>}
       {err && <p className="warn-box">{err}</p>}
-      <p className="muted">The profile is kept in this browser for this board. Save it to a file to commit it to the team repo.</p>
+      <p className="muted">Saved in this browser for this board. Save a file to commit it to the team repo.</p>
       <div className="row">
         <button className="primary" onClick={() => downloadJson(`${p.name.replace(/[^\w.-]+/g, "_")}.json`, p)}>Save profile file</button>
         <label className="file-btn">Open a different profile…<input type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); e.target.value = ""; }} /></label>
@@ -155,14 +155,15 @@ export function SticksStep({ p, d }: { p: Profile; d: Derived }) {
   const chans: [StickKey, number][] = [["roll", p.rc.roll], ["pitch", p.rc.pitch], ["throttle", p.rc.throttle], ["yaw", p.rc.yaw]];
   return (
     <StepShell title="Sticks" d={d} steps={["sticks"]}
-      intro={<p>Two parts: which channel each stick is on (and which way is which), then the full travel of each stick. Use the transmitter normally; no menus.</p>}>
+      intro={<p>Map each stick, then measure its travel.</p>}
+      help="Move each stick when asked. The tool finds the channel and its direction, so no transmitter menus are needed." docs={["rcCal"]}>
       <div className="two-col">
         <div>
           <h3>1. Which stick is which</h3>
           {mode === "map" ? (
             <div className="prompt">
               <div className="big-prompt">{waitRelease ? "Let go of the stick (back to center)…" : STICK_PROMPTS[i]!.text}</div>
-              <p className="muted">Step {i + 1} of 4. The tool watches which channel moves.</p>
+              <p className="muted">Step {i + 1} of 4</p>
               <button onClick={() => setMode("idle")}>Cancel</button>
             </div>
           ) : (
@@ -228,7 +229,8 @@ export function ModesStep({ p, d }: { p: Profile; d: Derived }) {
   const active = slotOf(pwm);
   return (
     <StepShell title="Flight modes" d={d} steps={["modes"]}
-      intro={<p>The team flies in MANUAL. FBWA (wings-level assist) and ACRO are the only other modes allowed, and the Mission Planner mode buttons are blocked for everything else. A sensible switch: MANUAL in most positions, FBWA in one.</p>}>
+      intro={<p>Allowed modes: MANUAL, FBWA, ACRO.</p>}
+      help="Other modes are blocked on the switch and in Mission Planner. Suggested: MANUAL everywhere, FBWA on one position." docs={["modes", "modeSwitch", "manual", "fbwa", "acro"]}>
       <div className="row">
         <label className="field inline">Mode switch channel
           <select value={p.modes.channel} onChange={(e) => updateProfile((x) => ({ ...x, modes: { ...x.modes, channel: Number(e.target.value) } }))}>
