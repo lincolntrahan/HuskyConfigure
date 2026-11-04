@@ -6,4 +6,6 @@ export * from "./rules.ts";
 export * from "./ledger.ts";
 export * from "./infer.ts";
 export * from "./templates.ts";
+export * from "./describe.ts";
+export * from "./peripherals.ts";
 export * from "./failsafe.ts";

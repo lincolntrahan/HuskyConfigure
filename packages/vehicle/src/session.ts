@@ -53,6 +53,10 @@ export interface LiveState {
   attitude?: { roll: number; pitch: number; yaw: number };
   /** husky.lua heartbeat */
   hsk?: { version: number; state: number; t: number };
+  /** GPS_RAW_INT: fix type (0 no GPS, 1 no fix, 2 2D, 3 3D…) and satellites */
+  gps?: { fix: number; sats: number; t: number };
+  /** last time ESC telemetry arrived */
+  escT?: number;
 }
 
 export interface Hwdef { text: string; pwm: { n: number; timer: string; bidir: boolean }[]; serialOrder: string[] }
@@ -262,6 +266,8 @@ export class Session {
       if ((f.port ?? 0) !== 0) return;
       this.setLive({ servo: Array.from({ length: 16 }, (_, i) => f[`servo${i + 1}_raw`] ?? 0) });
     });
+    conn.on("GPS_RAW_INT", (m) => this.setLive({ gps: { fix: m.fields.fix_type, sats: m.fields.satellites_visible, t: Date.now() } }));
+    conn.on("ESC_TELEMETRY_1_TO_4", () => this.setLive({ escT: Date.now() }));
     conn.on("ATTITUDE", (m) => this.setLive({ attitude: { roll: m.fields.roll, pitch: m.fields.pitch, yaw: m.fields.yaw } }));
     conn.on("NAMED_VALUE_FLOAT", (m) => {
       if (m.fields.name !== "HSK") return;
@@ -269,7 +275,7 @@ export class Session {
       this.setLive({ hsk: { version: Math.floor(v / 100), state: v % 100, t: Date.now() } });
     });
     // ask for what the wizard watches (best effort)
-    for (const [id, hz] of [[65, 10], [36, 10], [30, 10]] as const) void conn.setMessageRate(id, hz).catch(() => {});
+    for (const [id, hz] of [[65, 10], [36, 10], [30, 10], [24, 2]] as const) void conn.setMessageRate(id, hz).catch(() => {});
   }
 
   /** Board hardware definition from ROMFS (exact for the running firmware), if the board has one. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   compile, decodeTerm, diffCompiled, fallbackFunction, emptyProfile, encodeTerm, evaluate, evalMix, FN, inferProfile,
   nativeFunction, S, spoilerInput, recordCheck, checkStatus, type BoardFacts, type Profile,
+  inferKind, normalizeSurface, termToUi, uiToTerm, addInput, decodeDevId,
 } from "../src/index.ts";
 
 /** A board that looks like last year's V2 (H743, 4.7 names), trimmed to what matters here. */
@@ -13,7 +14,7 @@ function lastYearBoard(): Map<string, number> {
     RC3_MIN: 1100, RC3_MAX: 1900, RC3_TRIM: 1500, RC4_MIN: 988, RC4_MAX: 2011, RC4_TRIM: 1512,
     RC7_OPTION: 208, FLTMODE_CH: 8, FLTMODE1: 0, FLTMODE2: 6, FLTMODE3: 0, FLTMODE4: 0, FLTMODE5: 0, FLTMODE6: 10,
     FLTMODE_GCSBLOCK: 0, INITIAL_MODE: 0,
-    SERIAL2_PROTOCOL: 2, SERIAL4_PROTOCOL: 5, SERIAL6_PROTOCOL: 16, SERIAL7_PROTOCOL: 23, SERIAL7_BAUD: 57,
+    SERIAL2_PROTOCOL: 2, SERIAL2_BAUD: 460, SERIAL4_PROTOCOL: 5, SERIAL4_BAUD: 230, SERIAL6_PROTOCOL: 16, SERIAL6_BAUD: 115, SERIAL7_PROTOCOL: 23, SERIAL7_BAUD: 57,
     RSSI_TYPE: 3, RC_OPTIONS: 32,
     SERVO_BLH_MASK: 1, SERVO_BLH_OTYPE: 5, SERVO_BLH_BDMASK: 1, SERVO_BLH_POLES: 1,
     THR_FAILSAFE: 0, FS_SHORT_ACTN: 0, FS_LONG_ACTN: 0, RC_FS_TIMEOUT: 1, FS_GCS_ENABL: 0, AFS_ENABLE: 0,
@@ -120,11 +121,11 @@ describe("compile", () => {
     expect(c.params.HSK_MIX_N).toBe(2);
     expect(c.params.HSK_M1_OUT).toBe(-6); // left: mix is roll -1, aileron is roll +1 → script flips
     expect(c.params.HSK_M2_OUT).toBe(8);
-    expect(c.params.SERVO6_REVERSED).toBeUndefined(); // decided by the direction check, not guessed
+    expect(c.params.SERVO6_REVERSED).toBe(0); // the surface's own setting (default: not reversed)
+    expect(c.params.SERVO6_TRIM).toBe(1500); // endpoints follow the surface
     expect(decodeTerm(c.params.HSK_M1_T2!).id).toBe(207);
     expect(c.params.SERVO_BLH_MASK).toBe(1);
     expect(c.params.SERVO_BLH_OTYPE).toBe(6);
-    expect(c.params.SERIAL6_PROTOCOL).toBe(16);
     expect(c.params.SERVO2_FUNCTION).toBe(0); // last year's leftovers disabled
     expect(c.absent).toContain("HSK_MIX_N"); // script not running on this fake board
   });
@@ -167,5 +168,71 @@ describe("verification ledger", () => {
     board.set("SERVO7_REVERSED", 0); // unrelated output
     board.set("SERVO5_REVERSED", 1);
     expect(checkStatus(`direction:${s.id}`, p, board)).toBe("ok");
+  });
+});
+
+describe("describing mixes without signs", () => {
+  it("infers kinds from what moves a surface", () => {
+    const inputs = [spoilerInput(7)];
+    const k = (mix: { in: string; w: number }[], upright = false) => inferKind({ mix, upright, kind: "mechanism" }, inputs);
+    expect(k([{ in: "roll", w: -1 }])).toBe("aileron");
+    expect(k([{ in: "roll", w: -1 }, { in: "spoiler", w: 0.5 }])).toBe("spoileron");
+    expect(k([{ in: "pitch", w: 1 }, { in: "yaw", w: 1 }])).toBe("ruddervator");
+    expect(k([{ in: "pitch", w: 1 }, { in: "roll", w: 1 }])).toBe("elevon");
+    expect(k([{ in: "roll", w: 1 }, { in: "flap", w: -1 }])).toBe("flaperon");
+    expect(k([{ in: "yaw", w: 1 }], true)).toBe("rudder");
+    expect(k([{ in: "spoiler", w: 1 }])).toBe("spoiler");
+    expect(k([{ in: "rc9", w: 1 }])).toBe("mechanism");
+  });
+  it("names and sides come from the diagram position", () => {
+    const left = normalizeSurface({ id: "a", name: "", kind: "mechanism", mix: [{ in: "roll", w: -1 }], pos: { x: 100, y: 250, w: 200, h: 30 }, autoName: true }, []);
+    expect(left).toMatchObject({ kind: "aileron", side: "left", name: "Left aileron" });
+    const renamed = normalizeSurface({ ...left, name: "Outboard L", autoName: false, pos: { x: 700, y: 250, w: 200, h: 30 } }, []);
+    expect(renamed).toMatchObject({ side: "right", name: "Outboard L" });
+  });
+  it("Up/Down answers round-trip to mix terms", () => {
+    for (const u of [{ dir: -1 as const, amount: 1, oneWay: "both" as const }, { dir: 1 as const, amount: 0.35, oneWay: "plus" as const }]) {
+      expect(termToUi(uiToTerm("roll", u))).toEqual(u);
+    }
+    const s = { id: "x", name: "", kind: "mechanism" as const, mix: [], pos: { x: 100, y: 250, w: 200, h: 30 } };
+    expect(addInput(s, "roll", { inputs: [] }).mix[0]).toEqual({ in: "roll", w: -1 }); // left wing: roll right goes down
+    expect(addInput({ ...s, pos: { x: 520, y: 478, w: 150, h: 24 } }, "yaw", { inputs: [] }).mix[0]!.w).toBe(-1); // right V-tail half
+  });
+  it("import + layout keeps the compiled outputs identical", () => {
+    const board = lastYearBoard();
+    const prof = inferProfile(board);
+    expect(prof.surfaces.every((s) => s.pos)).toBe(true);
+    const c = compile(prof, facts(board));
+    expect(diffCompiled(c, board, ["outputs", "directions", "trims"])).toEqual([]);
+    expect(prof.surfaces.find((s) => s.output === 8)).toMatchObject({ name: "Left flaperon", side: "left" });
+  });
+});
+
+describe("peripherals and named inputs", () => {
+  it("reads ports from the board and writes them back unchanged", () => {
+    const board = lastYearBoard();
+    const prof = inferProfile(board);
+    expect(prof.ports).toMatchObject({ 2: "mavlink", 4: "gps", 6: "esc-telem", 7: "rc" });
+    const c = compile(prof, facts(board));
+    for (const n of [2, 4, 6, 7]) expect(c.params[`SERIAL${n}_PROTOCOL`]).toBe(board.get(`SERIAL${n}_PROTOCOL`));
+    expect(diffCompiled(c, board, ["receiver"])).toEqual([]);
+  });
+  it("moving the receiver to another port turns the old one off", () => {
+    const board = lastYearBoard();
+    const prof = { ...inferProfile(board) };
+    prof.ports = { ...prof.ports, 7: "none", 2: "rc-elrs" };
+    const c = compile(prof, facts(board));
+    expect(c.params).toMatchObject({ SERIAL2_PROTOCOL: 23, SERIAL7_PROTOCOL: -1, RSSI_TYPE: 3, RC_OPTIONS: 32 | (1 << 13) });
+  });
+  it("imports RC passthrough as named inputs, outputs unchanged", () => {
+    const board = lastYearBoard();
+    const prof = inferProfile(board);
+    expect(prof.inputs.map((i) => i.id)).toEqual(expect.arrayContaining(["ch7", "ch14", "ch15"]));
+    expect(prof.surfaces.some((s) => s.mix.some((t) => /^rc\d/.test(t.in)))).toBe(false);
+    expect(diffCompiled(compile(prof, facts(board)), board, ["outputs"])).toEqual([]);
+  });
+  it("decodes sensor device ids", () => {
+    // QMC5883L on I2C bus 0 at 0x0d: devtype 0x0d, address 0x0d, bus 0, type I2C (1)
+    expect(decodeDevId(1 | (0 << 3) | (0x0d << 8) | (0x0d << 16), "compass")).toMatchObject({ busType: "I2C", address: 0x0d, name: "QMC5883L" });
   });
 });

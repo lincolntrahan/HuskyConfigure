@@ -6,6 +6,7 @@
 import { configHash } from "./failsafe.ts";
 import { FN, encodeTerm, fallbackFunction, nativeFunction, type NativeMatch } from "./mixer.ts";
 import type { MotorProtocol, Profile, Surface } from "./types.ts";
+import { PERIPHERALS, profilePorts } from "./peripherals.ts";
 
 export type StepId =
   | "receiver" | "sticks" | "modes" | "outputs" | "motor" | "directions" | "trims"
@@ -55,23 +56,23 @@ export function compile(profile: Profile, board: BoardFacts, allowedModes: numbe
   const cur = (n: string) => board.params.get(n);
   const scripting = board.hasScripting && profile.failsafe.mode === "pose";
 
-  // ---- receiver ----
-  const rx = profile.receiver;
-  if (rx.kind !== "keep" && rx.kind !== "sbus-rcin" && rx.serial !== undefined) {
-    const p = `SERIAL${rx.serial}_`;
-    if (rx.kind === "elrs-crsf") {
-      set("receiver", `${p}PROTOCOL`, 23);
-      set("receiver", "RSSI_TYPE", 3);
-      set("receiver", "RC_OPTIONS", ((cur("RC_OPTIONS") ?? 0) | (1 << 13)) >>> 0); // 420k baud for ELRS
-    } else {
-      set("receiver", `${p}PROTOCOL`, 2);
-      set("receiver", `${p}BAUD`, 115);
-      set("receiver", "RSSI_TYPE", 5);
-    }
-    // only one RC input port: clear stale ones
-    for (let n = 1; n <= 8; n++) {
-      if (n !== rx.serial && cur(`SERIAL${n}_PROTOCOL`) === 23) set("receiver", `SERIAL${n}_PROTOCOL`, -1);
-    }
+  // ---- peripherals (serial ports) ----
+  const ports = profilePorts(profile);
+  for (const [n, kind] of Object.entries(ports)) {
+    if (kind === "keep" || !board.params.has(`SERIAL${n}_PROTOCOL`)) continue;
+    const info = PERIPHERALS[kind];
+    set("receiver", `SERIAL${n}_PROTOCOL`, info.protocol);
+    const baud = profile.portBaud?.[n] ?? info.baud;
+    if (baud !== undefined && kind !== "rc" && kind !== "rc-elrs") set("receiver", `SERIAL${n}_BAUD`, baud);
+  }
+  const kinds = Object.values(ports);
+  const rcOpt = cur("RC_OPTIONS") ?? 0;
+  if (kinds.includes("rc-mavlink")) set("receiver", "RSSI_TYPE", 5);
+  else if (kinds.includes("rc-elrs")) {
+    set("receiver", "RSSI_TYPE", 3);
+    set("receiver", "RC_OPTIONS", (rcOpt | (1 << 13)) >>> 0); // ELRS runs CRSF at 420k
+  } else if (kinds.includes("rc") && (rcOpt >> 13) & 1) {
+    set("receiver", "RC_OPTIONS", (rcOpt & ~(1 << 13)) >>> 0); // not ELRS: standard CRSF 416k
   }
 
   // ---- sticks ----
@@ -115,8 +116,8 @@ export function compile(profile: Profile, board: BoardFacts, allowedModes: numbe
       scripted.push({ surfaceId: s.id, output: s.output, slot: scripted.length + 1, fn: fb.fn, invert: fb.invert, fallback: fb.label });
       set("outputs", `${p}FUNCTION`, fb.fn);
     }
-    // Servo reversal is a physical fact found by the direction check; until then, leave the board's value.
-    if (s.reversed !== undefined) set("directions", `${p}REVERSED`, s.reversed ? 1 : 0);
+    // Endpoints, center and reversal belong to the surface, so they follow it to whichever pad it's on.
+    set("directions", `${p}REVERSED`, s.reversed ? 1 : 0);
     applyTrims(s, p, set);
   }
   for (const mo of profile.motors) {
@@ -137,9 +138,7 @@ export function compile(profile: Profile, board: BoardFacts, allowedModes: numbe
   set("motor", "SERVO_BLH_BDMASK", dshot.filter((m) => m.bidir).reduce((a, m) => a | (1 << (m.output! - 1)), 0));
   if (dshot.length) set("motor", "SERVO_BLH_POLES", dshot[0]!.poles);
   if (new Set(dshot.map((m) => m.protocol)).size > 1) notes.push("All DShot motors share one protocol; using the first motor's.");
-  for (const m of profile.motors) {
-    if (m.telemetry === "serial" && m.telemetrySerial) set("motor", `SERIAL${m.telemetrySerial}_PROTOCOL`, 16);
-  }
+  // (an ESC telemetry wire is a peripheral: see ports)
 
   // ---- failsafe ----
   const delay = Math.max(500, profile.failsafe.delayMs);
@@ -207,10 +206,12 @@ export function compile(profile: Profile, board: BoardFacts, allowedModes: numbe
   return { params, owner, native, scripted, absent, notes };
 }
 
+export const DEFAULT_ENDPOINTS = { min: 1100, trim: 1500, max: 1900 };
+
 function applyTrims(s: Surface, p: string, set: (step: StepId, name: string, value: number) => void) {
-  if (s.trim !== undefined) set("trims", `${p}TRIM`, s.trim);
-  if (s.min !== undefined) set("trims", `${p}MIN`, s.min);
-  if (s.max !== undefined) set("trims", `${p}MAX`, s.max);
+  set("trims", `${p}MIN`, s.min ?? DEFAULT_ENDPOINTS.min);
+  set("trims", `${p}TRIM`, s.trim ?? DEFAULT_ENDPOINTS.trim);
+  set("trims", `${p}MAX`, s.max ?? DEFAULT_ENDPOINTS.max);
 }
 
 /** Parameters whose compiled value differs from the board (and exist on the board). */

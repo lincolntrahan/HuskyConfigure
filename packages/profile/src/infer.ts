@@ -4,6 +4,8 @@
  * until the user edits something.
  */
 import { FN } from "./mixer.ts";
+import { normalizeSurface, withLayout } from "./describe.ts";
+import { portsFromBoard } from "./peripherals.ts";
 import { emptyProfile, type Motor, type MotorProtocol, type Profile, type Surface, type SurfaceKind, type MixTerm } from "./types.ts";
 
 const OTYPE_TO: Record<number, MotorProtocol> = { 4: "DSHOT150", 5: "DSHOT300", 6: "DSHOT600", 7: "DSHOT1200" };
@@ -13,13 +15,14 @@ const NATIVE: Record<number, { kind: SurfaceKind; side?: Surface["side"]; mix: M
   [FN.ELEVATOR]: { kind: "elevator", mix: [{ in: "pitch", w: 1 }], name: "Elevator" },
   [FN.RUDDER]: { kind: "rudder", mix: [{ in: "yaw", w: 1 }], name: "Rudder" },
   [FN.GROUND_STEERING]: { kind: "steering", mix: [{ in: "yaw", w: 1 }], name: "Steering" },
-  [FN.FLAP]: { kind: "flap", mix: [{ in: "flap", w: 1 }], name: "Flap" },
-  [FN.FLAP_AUTO]: { kind: "flap", mix: [{ in: "flap", w: 1 }], name: "Flap" },
+  [FN.FLAP]: { kind: "flap", mix: [{ in: "flap", w: -1 }], name: "Flap" },
+  [FN.FLAP_AUTO]: { kind: "flap", mix: [{ in: "flap", w: -1 }], name: "Flap" },
   [FN.ELEVON_LEFT]: { kind: "elevon", side: "left", mix: [{ in: "pitch", w: 1 }, { in: "roll", w: -1 }], name: "Left elevon" },
   [FN.ELEVON_RIGHT]: { kind: "elevon", side: "right", mix: [{ in: "pitch", w: 1 }, { in: "roll", w: 1 }], name: "Right elevon" },
   [FN.VTAIL_LEFT]: { kind: "ruddervator", side: "left", mix: [{ in: "pitch", w: 1 }, { in: "yaw", w: 1 }], name: "Left ruddervator" },
   [FN.VTAIL_RIGHT]: { kind: "ruddervator", side: "right", mix: [{ in: "pitch", w: 1 }, { in: "yaw", w: -1 }], name: "Right ruddervator" },
-  [FN.FLAPERON_LEFT]: { kind: "flaperon", side: "left", mix: [{ in: "roll", w: 1 }, { in: "flap", w: 1 }], name: "Left flaperon" },
+  // intent: roll right lowers the left flaperon, flaps lower both (same sign pattern as ArduPilot's left)
+  [FN.FLAPERON_LEFT]: { kind: "flaperon", side: "left", mix: [{ in: "roll", w: -1 }, { in: "flap", w: -1 }], name: "Left flaperon" },
   [FN.FLAPERON_RIGHT]: { kind: "flaperon", side: "right", mix: [{ in: "roll", w: 1 }, { in: "flap", w: -1 }], name: "Right flaperon" },
 };
 
@@ -41,10 +44,9 @@ export function inferProfile(params: ReadonlyMap<string, number>, opts: { name?:
     if (opt === 208 && !p.flapChannel) p.flapChannel = ch;
     if (opt === 153) p.arming = { method: "switch", switchChannel: ch, rudderDisarm: false };
   }
-  for (let n = 1; n <= 8; n++) {
-    const proto = g(`SERIAL${n}_PROTOCOL`);
-    if (proto === 23) p.receiver = { kind: "elrs-crsf", serial: n };
-  }
+  p.ports = portsFromBoard(params);
+  // keep each port's baud as it is on the board (an import shouldn't change anything)
+  p.portBaud = Object.fromEntries(Object.keys(p.ports).map((n) => [n, g(`SERIAL${n}_BAUD`)]).filter(([, v]) => v !== undefined));
 
   const blhMask = g("SERVO_BLH_MASK") ?? 0;
   const bdMask = g("SERVO_BLH_BDMASK") ?? 0;
@@ -74,13 +76,13 @@ export function inferProfile(params: ReadonlyMap<string, number>, opts: { name?:
     }
     const nat = NATIVE[fn];
     if (nat) {
-      p.surfaces.push({ id: `s${n}`, name: `${nat.name} (S${n})`, kind: nat.kind, side: nat.side, mix: nat.mix.map((t) => ({ ...t })), ...common });
+      p.surfaces.push({ id: `s${n}`, name: `${nat.name} (S${n})`, kind: nat.kind, side: nat.side, mix: nat.mix.map((t) => ({ ...t })), autoName: true, ...common });
     } else if (fn >= FN.RCIN1_SCALED && fn < FN.RCIN1_SCALED + 16) {
       const rc = fn - FN.RCIN1_SCALED + 1;
-      p.surfaces.push({ id: `s${n}`, name: `RC${rc} passthrough (S${n})`, kind: "mechanism", mix: [{ in: `rc${rc}`, w: 1 }], failsafe: "hold", ...common });
+      p.surfaces.push({ id: `s${n}`, name: `RC${rc} mechanism (S${n})`, kind: "mechanism", mix: [{ in: `rc${rc}`, w: 1 }], failsafe: "hold", autoName: false, ...common });
     } else {
       // raw RCIN passthrough, scripting outputs, LEDs, alarms…: keep exactly as is
-      p.surfaces.push({ id: `s${n}`, name: `Function ${fn} (S${n})`, kind: "fixed", fixedFunction: fn, mix: [], failsafe: "hold", ...common });
+      p.surfaces.push({ id: `s${n}`, name: `Function ${fn} (S${n})`, kind: "fixed", fixedFunction: fn, mix: [], failsafe: "hold", autoName: false, ...common });
     }
   }
 
@@ -90,5 +92,6 @@ export function inferProfile(params: ReadonlyMap<string, number>, opts: { name?:
   if (pwms.some((v) => v > 0)) p.failsafe.capturedPwm = pwms;
   if (g("HSK_RUD_ARM") === 1 && g("ARMING_RUDDER") === 0) p.arming = { method: "rudder-script", rudderDisarm: false };
   else if (p.arming.method !== "switch") p.arming = { method: hs ? "rudder-script" : "rudder-native", rudderDisarm: g("ARMING_RUDDER") === 2 };
-  return p;
+  const laid = withLayout(p);
+  return { ...laid, surfaces: laid.surfaces.map((s) => (s.kind === "fixed" ? s : normalizeSurface(s, laid.inputs))) };
 }

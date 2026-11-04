@@ -22,14 +22,12 @@ The wizard edits an **aircraft profile** (saved per board in the browser; *Save 
 | Step | What it does |
 |---|---|
 | Aircraft | Start from the board's current setup (import changes nothing until you edit), start fresh, or open a profile file. |
-| Receiver | ELRS CRSF / MAVLink / SBUS, on which pads; live RC check. |
+| Peripherals | What's on each serial port (RC receiver, ELRS MAVLink, telemetry, GPS, ESC telemetry, HD OSD…) with pad labels, speed and live status, like Betaflight's Ports tab. *Find my GPS / receiver* tries each free port (one reboot each) until the device answers. Lists the I2C/SPI sensors the board found by itself. |
 | Sticks | Move each stick when asked: the tool finds the channel and its direction (catches reversed radios), then measures stick travel. |
 | Flight modes | MANUAL / FBWA / ACRO only; Mission Planner is blocked from selecting anything else. |
-| Airframe | Templates (conventional, V-tail, flying wing, flaperons, spoilerons) and a per-surface mix editor. Each surface shows whether ArduPilot mixes it natively or the companion script does, and what it falls back to if the script stops. |
-| Outputs | Which pad each servo/ESC is on, with the board's real timer groups (read from the board); DShot / bidirectional / ESC telemetry. Unused outputs are switched off. |
+| Airframe and outputs | A top-down diagram: place surfaces freely (or start from a layout), drag input chips (Roll, Pitch, Yaw, Flap and named inputs like Spoilers, all set up in the Inputs box above the plane) onto them, and answer "When you roll right, this goes Up / Down". Each surface has its servo travel (low end, center, high end on a −100…+100 % scale, typed in % or µs, or dragged) and *Reverse PWM*; these belong to the surface and follow it to whatever pad it's on. *Drive the real servos* makes the on-screen sticks move the actual surfaces and writes every change immediately (throttle held closed). The tool works out what each surface is, its side and name, and whether ArduPilot or the companion script drives it. A grid view shows the same mix as a table, and on-screen sticks (or your transmitter) animate the result. Surfaces and motors are dragged onto the board's pads, colored by shared hardware timer; a DShot motor locks its group. Unused pads are switched off. |
 | Companion script | Installs `husky.lua` over USB (MAVLink FTP), verifies it, reboots and reconnects. |
 | Surface directions | One input at a time: the tool waits until it *sees* the output move, you say which way it went, wrong answers are fixed on the spot (servo reversed, or mix sign for a wrong-side surface). |
-| Trim and throws | Live center and end-point adjustment. |
 | Stabilization check | FBWA tilt test (board attitude confirmed before you answer). |
 | Failsafe | Captures the DBF pose from the board itself (sticks held by RC override, disarmed, MANUAL), applies it, then the transmitter-off test with a per-surface checklist. |
 | Arming | Rudder-stick arming through the script; nuisance pre-arm checks off. |

@@ -72,55 +72,6 @@ export function StartStep({ p, d }: { p: Profile | null; d: Derived | null }) {
   );
 }
 
-// ---------------- Receiver ----------------
-const PROTO: Record<number, string> = { [-1]: "none", 1: "MAVLink1", 2: "MAVLink2", 5: "GPS", 16: "ESC telemetry", 23: "RC input", 28: "Scripting", 10: "FrSky passthrough" };
-
-function padLabel(uart?: string) {
-  if (!uart || uart.startsWith("OTG")) return uart === "OTG1" ? "USB" : uart ?? "";
-  const n = uart.replace(/^U?S?ART/, "");
-  return `${uart} (pads TX${n}/RX${n})`;
-}
-
-export function ReceiverStep({ p, d }: { p: Profile; d: Derived }) {
-  const live = useLive();
-  const order = session.hwdef?.serialOrder;
-  const rcOk = live.rcCount > 0 && live.rc.slice(0, 4).some((v) => v > 800);
-  const ports = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => d.board.has(`SERIAL${n}_PROTOCOL`));
-  const set = (patch: Partial<Profile["receiver"]>) => updateProfile((x) => ({ ...x, receiver: { ...x.receiver, ...patch } }));
-  return (
-    <StepShell title="Receiver" d={d} steps={["receiver"]}
-      intro={<p>Tell the board where the ELRS receiver is wired and how it talks. If RC is already arriving and you're happy with it, keep the current setup.</p>}>
-      <p className={rcOk ? "ok-box" : "warn-box"}>{rcOk ? `✓ RC is arriving: ${live.rcCount} channels. Move a stick to see it below.` : "No RC signal right now. Turn the transmitter on (bound to this receiver)."}</p>
-      <div className="two-col">
-        <div>
-          <label className="field">How the receiver talks
-            <select value={p.receiver.kind} onChange={(e) => set({ kind: e.target.value as Profile["receiver"]["kind"] })}>
-              <option value="keep">Keep what's on the board</option>
-              <option value="elrs-crsf">ELRS, CRSF protocol (RC only, standard)</option>
-              <option value="elrs-mavlink">ELRS, MAVLink mode (RC + telemetry)</option>
-              <option value="sbus-rcin">SBUS on the RC-in pad</option>
-            </select>
-          </label>
-          {(p.receiver.kind === "elrs-crsf" || p.receiver.kind === "elrs-mavlink") && (
-            <label className="field">Wired to
-              <select value={p.receiver.serial ?? ""} onChange={(e) => set({ serial: Number(e.target.value) })}>
-                <option value="" disabled>pick the pads the receiver is soldered to</option>
-                {ports.map((n) => <option key={n} value={n}>SERIAL{n}: {padLabel(order?.[n])}, now {PROTO[d.board.get(`SERIAL${n}_PROTOCOL`) ?? -1] ?? d.board.get(`SERIAL${n}_PROTOCOL`)}</option>)}
-              </select>
-            </label>
-          )}
-          {p.receiver.kind !== "keep" && <p className="muted">Changing the receiver port takes effect after a reboot (the top bar offers it after applying).</p>}
-          <h3>Serial ports now</h3>
-          <table className="grid compact"><tbody>
-            {ports.map((n) => <tr key={n}><td className="mono">SERIAL{n}</td><td>{padLabel(order?.[n])}</td><td>{PROTO[d.board.get(`SERIAL${n}_PROTOCOL`) ?? -1] ?? d.board.get(`SERIAL${n}_PROTOCOL`)}</td></tr>)}
-          </tbody></table>
-        </div>
-        <div><RcBars channels={12} /></div>
-      </div>
-    </StepShell>
-  );
-}
-
 // ---------------- Sticks ----------------
 type StickKey = "roll" | "pitch" | "throttle" | "yaw";
 const STICK_PROMPTS: { key: StickKey; text: string }[] = [

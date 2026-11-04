@@ -3,23 +3,23 @@ import { diffCompiled, mixInputs, type Profile, type StepId } from "@husky/profi
 import { useSession } from "../state.ts";
 import { useLive } from "./common.tsx";
 import { check, useDerived, useProfile, type Derived } from "./store.ts";
-import { StartStep, ReceiverStep, SticksStep, ModesStep } from "./stepsSetup.tsx";
-import { AirframeStep, OutputsStep, ScriptStep, BUNDLED_VERSION } from "./stepsAirframe.tsx";
-import { DirectionsStep, TrimsStep, StabilizeStep } from "./stepsChecks.tsx";
+import { StartStep, SticksStep, ModesStep } from "./stepsSetup.tsx";
+import { PeripheralsStep } from "./stepsPeripherals.tsx";
+import { ScriptStep, BUNDLED_VERSION } from "./stepsAirframe.tsx";
+import { AirframeOutputsStep } from "./airframe.tsx";
+import { DirectionsStep, StabilizeStep } from "./stepsChecks.tsx";
 import { FailsafeStep, ArmingStep, FinishStep } from "./stepsSafety.tsx";
 
 type Status = "done" | "todo" | "stale" | "error";
 interface StepDef { id: string; label: string; owns: StepId[]; Comp: (props: { p: Profile; d: Derived }) => JSX.Element }
 
 const STEPS: StepDef[] = [
-  { id: "receiver", label: "Receiver", owns: ["receiver"], Comp: ReceiverStep },
+  { id: "receiver", label: "Peripherals", owns: ["receiver"], Comp: PeripheralsStep },
   { id: "sticks", label: "Sticks", owns: ["sticks"], Comp: SticksStep },
   { id: "modes", label: "Flight modes", owns: ["modes"], Comp: ModesStep },
-  { id: "airframe", label: "Airframe", owns: [], Comp: AirframeStep },
-  { id: "outputs", label: "Outputs", owns: ["outputs", "motor"], Comp: OutputsStep },
+  { id: "airframe", label: "Airframe and outputs", owns: ["outputs", "motor", "directions", "trims"], Comp: AirframeOutputsStep },
   { id: "script", label: "Companion script", owns: [], Comp: ScriptStep },
   { id: "directions", label: "Surface directions", owns: ["directions"], Comp: DirectionsStep },
-  { id: "trims", label: "Trim and throws", owns: ["trims"], Comp: TrimsStep },
   { id: "stabilize", label: "Stabilization check", owns: [], Comp: StabilizeStep },
   { id: "failsafe", label: "Failsafe", owns: ["failsafe"], Comp: FailsafeStep },
   { id: "arming", label: "Arming", owns: ["arming"], Comp: ArmingStep },
@@ -31,16 +31,15 @@ function statusOf(step: StepDef, p: Profile, d: Derived, hsk: { version: number;
   if (errs) return "error";
   const diff = step.owns.length ? diffCompiled(d.compiled, d.board, step.owns).length : 0;
   switch (step.id) {
-    case "receiver": return rcOk && !diff ? "done" : "todo";
+    case "receiver": return !diff ? "done" : "todo";
     case "sticks": return Object.keys(p.rc.ranges).length && !diff ? "done" : "todo";
-    case "airframe": return p.surfaces.length ? "done" : "todo";
+    case "airframe": return p.surfaces.length && !diff && p.surfaces.every((s) => s.output || s.kind === "fixed") ? "done" : "todo";
     case "script": return !d.facts.hasScripting || (hsk && Date.now() - hsk.t < 4000 && hsk.version === BUNDLED_VERSION) ? "done" : "todo";
     case "directions": {
       const sts = p.surfaces.filter((s) => s.output && s.kind !== "fixed" && mixInputs(s).some((i) => i !== "throttle")).map((s) => check(`direction:${s.id}`, p));
       if (!sts.length) return "todo";
       return sts.every((x) => x === "ok") && !diff ? "done" : sts.some((x) => x === "stale") ? "stale" : "todo";
     }
-    case "trims": return p.surfaces.filter((s) => s.output && s.kind !== "fixed").every((s) => s.trim !== undefined) && !diff ? "done" : "todo";
     case "stabilize": { const c = check("stabilize", p); return c === "ok" ? "done" : c; }
     case "failsafe": { const c = check("failsafe", p); return c === "ok" && !diff ? "done" : c === "stale" ? "stale" : "todo"; }
     case "finish": return d.findings.some((f) => f.severity === "error") ? "todo" : "done";

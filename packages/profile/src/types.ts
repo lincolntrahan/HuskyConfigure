@@ -50,7 +50,17 @@ export interface Surface {
   max?: number;
   /** what this output does during the RC-loss failsafe (non-flight outputs) */
   failsafe?: "pose" | "hold" | "trim" | "min" | "max";
+  /** where it sits on the top-down diagram (canvas units, see CANVAS in describe.ts) */
+  pos?: Rect;
+  /** stands up (rudder, steering): moves left/right instead of up/down */
+  upright?: boolean;
+  /** yaw-only upright surface that should act only on the ground (ArduPilot ground steering) */
+  groundSteering?: boolean;
+  /** name follows what the surface is (true until the user renames it) */
+  autoName?: boolean;
 }
+
+export interface Rect { x: number; y: number; w: number; h: number }
 
 export type MotorProtocol = "PWM" | "DSHOT150" | "DSHOT300" | "DSHOT600" | "DSHOT1200";
 
@@ -66,7 +76,12 @@ export interface Motor {
   /** SERIALn for a telemetry wire */
   telemetrySerial?: number;
   poles: number;
+  pos?: Rect;
 }
+
+import type { PeripheralKind } from "./peripherals.ts";
+
+export type Silhouette = "conventional" | "vtail" | "wing" | "none";
 
 export type ReceiverKind = "keep" | "elrs-crsf" | "elrs-mavlink" | "sbus-rcin";
 
@@ -76,8 +91,15 @@ export interface Profile {
   notes?: string;
   /** which physical board this profile was set up on (calibrations belong to it) */
   board?: { target?: string; uid?: string; firmware?: string };
+  /** outline drawn behind the surfaces on the airframe diagram */
+  silhouette?: Silhouette;
 
+  /** legacy (before ports): kept so old profiles still load */
   receiver: { kind: ReceiverKind; serial?: number };
+  /** device on each SERIALn ("keep" = leave the board's setting alone) */
+  ports?: Record<string, PeripheralKind>;
+  /** baud overrides per SERIALn (ArduPilot codes: 57, 115, 230, 460…) */
+  portBaud?: Record<string, number>;
   /** RC channel numbers (1-based) for the four sticks, plus reversal and calibrated ranges */
   rc: {
     roll: number; pitch: number; throttle: number; yaw: number;

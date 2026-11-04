@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { diffCompiled, evalMix, MODE_NAMES, type Profile, type StepId } from "@husky/profile";
+import { diffCompiled, evalMix, isUpright, MODE_NAMES, type Profile, type StepId } from "@husky/profile";
 import { session, useMetadata, useSession } from "../state.ts";
 import { Review } from "../components/Review.tsx";
 import { Findings, PropsGate, StepShell, sleep, useLive } from "./common.tsx";
 import { boardMap, check, downloadJson, passCheck, updateProfile, type Derived } from "./store.ts";
 import { BUNDLED_VERSION } from "./stepsAirframe.tsx";
 
-const VERTICAL = new Set(["rudder", "steering"]);
 /** Inputs in the DBF pose: full right roll, full up elevator, full right rudder, full flaps, throttle closed, extras off. */
 const POSE_INPUTS: Record<string, number> = { roll: 1, pitch: 1, yaw: 1, flap: 1, throttle: 0 };
 
@@ -15,7 +14,7 @@ function describePose(p: Profile) {
     const mode = s.failsafe ?? (s.kind === "mechanism" || s.kind === "fixed" ? "hold" : "pose");
     if (mode !== "pose") return { s, text: mode === "hold" ? "stays where it is" : mode === "trim" ? "goes to center" : `goes to its ${mode === "min" ? "low" : "high"} end` };
     const v = evalMix(s.mix, POSE_INPUTS);
-    const dir = Math.abs(v) < 0.05 ? "neutral" : VERTICAL.has(s.kind) ? (v > 0 ? "RIGHT" : "LEFT") : (v > 0 ? "UP" : "DOWN");
+    const dir = Math.abs(v) < 0.05 ? "neutral" : isUpright(s) ? (v > 0 ? "RIGHT" : "LEFT") : (v > 0 ? "UP" : "DOWN");
     return { s, text: dir === "neutral" ? "neutral / stowed" : `fully ${dir}` };
   });
 }
@@ -93,7 +92,7 @@ export function FailsafeStep({ p, d }: { p: Profile; d: Derived }) {
             onChange={(e) => updateProfile((x) => ({ ...x, failsafe: { ...x.failsafe, delayMs: Number(e.target.value) } }))} /> ms
         </label>
         {pose && !scriptOk && <p className="warn-box">The companion script (version {BUNDLED_VERSION}) isn't running. Install it in the Companion script step first.</p>}
-        {earlier.length > 0 && <p className="warn-box">Apply the Sticks, Outputs and Trim steps first. The pose is captured from the board as it is now.</p>}
+        {earlier.length > 0 && <p className="warn-box">Apply the Sticks and Airframe-and-outputs steps first. The pose is captured from the board as it is now.</p>}
 
         {pose && (
           <div className="card">

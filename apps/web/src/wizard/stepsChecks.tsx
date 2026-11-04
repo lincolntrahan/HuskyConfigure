@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { diffCompiled, mixInputs, rcOf, type MixTerm, type Profile, type Surface } from "@husky/profile";
+import { diffCompiled, isUpright, mixInputs, rcOf, type MixTerm, type Profile, type Surface } from "@husky/profile";
 import { session, useSession, PLANE_MODES } from "../state.ts";
 import { Bar, PropsGate, StepShell, useLive } from "./common.tsx";
 import { boardMap, check, passCheck, updateProfile, type Derived } from "./store.ts";
 
-const VERTICAL = new Set(["rudder", "steering"]);
 const sgn = (x: number) => (x < 0 ? -1 : 1);
 
 /** Which way to move an input so a term is active, and how to say it. */
@@ -90,13 +89,13 @@ export function DirectionsStep({ p, d }: { p: Profile; d: Derived }) {
 
   const prompt = term ? inputPrompt(term, p) : undefined;
   const sim = term && prompt && session.isSitl ? simulatedStick(term, prompt.x, p) : undefined;
-  const vertical = surf ? VERTICAL.has(surf.kind) : false;
+  const vertical = surf ? isUpright(surf) : false;
 
   return (
     <StepShell title="Surface directions" d={d}
       intro={<p>For each surface, move one stick at a time and say which way the surface went. The board is in MANUAL and disarmed, so the motor stays off. Wrong directions get fixed on the spot.</p>}>
       <PropsGate>
-        {pending.length > 0 && <p className="warn-box">Apply the Sticks and Outputs steps first ({pending.length} setting{pending.length === 1 ? "" : "s"} differ{pending.length === 1 ? "s" : ""} from the board). Testing now would test the old setup.</p>}
+        {pending.length > 0 && <p className="warn-box">Apply the Sticks and Airframe-and-outputs steps first ({pending.length} setting{pending.length === 1 ? "" : "s"} differ{pending.length === 1 ? "s" : ""} from the board). Testing now would test the old setup.</p>}
         {surf && term && prompt ? (
           <div className="card test">
             <h2>{surf.name} <span className="muted">S{surf.output} · input {run!.term + 1} of {terms.length}</span></h2>
@@ -144,53 +143,7 @@ export function DirectionsStep({ p, d }: { p: Profile; d: Derived }) {
             );
           })}</tbody>
         </table>
-        {testable.length === 0 && <p className="muted">No surfaces with outputs yet (Airframe and Outputs steps).</p>}
-      </PropsGate>
-    </StepShell>
-  );
-}
-
-// ---------------- Trims & throws ----------------
-export function TrimsStep({ p, d }: { p: Profile; d: Derived }) {
-  const live = useLive();
-  const surfaces = p.surfaces.filter((x) => x.output && x.kind !== "fixed");
-  async function setServo(s: Surface, field: "TRIM" | "MIN" | "MAX", value: number) {
-    const n = s.output!;
-    const cur = { MIN: d.board.get(`SERVO${n}_MIN`)!, TRIM: d.board.get(`SERVO${n}_TRIM`)!, MAX: d.board.get(`SERVO${n}_MAX`)! };
-    const next = { ...cur, [field]: Math.round(Math.max(800, Math.min(2200, value))) };
-    if (!(next.MIN < next.TRIM && next.TRIM < next.MAX)) return;
-    const r = await session.write([{ name: `SERVO${n}_${field}`, value: next[field] }], `${s.name} ${field.toLowerCase()}`);
-    if (r.ok) updateProfile((x) => ({ ...x, surfaces: x.surfaces.map((y) => (y.id === s.id ? { ...y, trim: next.TRIM, min: next.MIN, max: next.MAX } : y)) }));
-  }
-  return (
-    <StepShell title="Trim and throws" d={d} steps={["trims"]}
-      intro={<ol><li>Sticks centered: adjust <strong>Center</strong> until the surface is straight.</li><li>Hold the stick fully one way: adjust that end until the surface goes as far as it should <em>without the servo buzzing or the linkage binding</em>. Then the other way.</li></ol>}>
-      <PropsGate>
-        <p className="muted">Each click writes to the board immediately and is read back.</p>
-        {surfaces.map((s) => {
-          const n = s.output!;
-          const [mn, tr, mx] = [d.board.get(`SERVO${n}_MIN`) ?? 1100, d.board.get(`SERVO${n}_TRIM`) ?? 1500, d.board.get(`SERVO${n}_MAX`) ?? 1900];
-          const v = live.servo[n - 1] ?? 0;
-          const atLow = v <= mn + (tr - mn) * 0.15, atHigh = v >= mx - (mx - tr) * 0.15;
-          const stepper = (field: "MIN" | "TRIM" | "MAX", val: number, active: boolean) => (
-            <div className={`stepper ${active ? "active" : ""}`}>
-              <span>{field === "TRIM" ? "Center" : field === "MIN" ? "Low end" : "High end"}</span>
-              <div className="row tight">
-                <button className="small" onClick={() => void setServo(s, field, val - 25)}>−25</button>
-                <button className="small" onClick={() => void setServo(s, field, val - 5)}>−5</button>
-                <span className="mono">{val}</span>
-                <button className="small" onClick={() => void setServo(s, field, val + 5)}>+5</button>
-                <button className="small" onClick={() => void setServo(s, field, val + 25)}>+25</button>
-              </div>
-            </div>
-          );
-          return (
-            <div key={s.id} className="card">
-              <div className="row"><strong>{s.name}</strong><span className="muted">S{n}</span><Bar value={v} mark={tr} /><span className="mono">{v} µs</span></div>
-              <div className="row">{stepper("MIN", mn, atLow)}{stepper("TRIM", tr, !atLow && !atHigh)}{stepper("MAX", mx, atHigh)}</div>
-            </div>
-          );
-        })}
+        {testable.length === 0 && <p className="muted">No surfaces plugged into outputs yet (Airframe and outputs step).</p>}
       </PropsGate>
     </StepShell>
   );
